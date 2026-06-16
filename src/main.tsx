@@ -17,7 +17,7 @@ function Root() {
   useEffect(() => {
     invoke<Settings>("cmd_get_settings")
       .then(setSettings)
-      .catch((e) => setError("Ayarlar yüklenemedi: " + String(e)));
+      .catch((e) => setError("Could not load settings: " + String(e)));
   }, []);
 
   if (error) {
@@ -31,7 +31,7 @@ function Root() {
   if (!settings) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-neutral-950 px-4 text-neutral-400">
-        <p>Yükleniyor…</p>
+        <p>Loading…</p>
       </main>
     );
   }

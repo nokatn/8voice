@@ -36,7 +36,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
   useEffect(() => {
     invoke<WhisperModel[]>("cmd_list_whisper_models")
       .then(setModels)
-      .catch((e) => setError("Model listesi alınamadı: " + String(e)));
+      .catch((e) => setError("Could not load model list: " + String(e)));
   }, []);
 
   const selectedModel = useMemo(
@@ -70,7 +70,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
           break;
         case "Error":
           setDownloadStatus("error");
-          setError("İndirme hatası: " + event.data.message);
+          setError("Download error: " + event.data.message);
           break;
         case "Cancelled":
           setDownloadStatus("idle");
@@ -85,7 +85,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
       });
     } catch (e) {
       setDownloadStatus("error");
-      setError("İndirme başlatılamadı: " + String(e));
+      setError("Could not start download: " + String(e));
     }
   };
 
@@ -102,9 +102,9 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
         directory: false,
         filters: [
           { name: "Whisper model", extensions: ["bin", "gguf"] },
-          { name: "Tüm dosyalar", extensions: ["*"] },
+          { name: "All files", extensions: ["*"] },
         ],
-        title: "Whisper model dosyası seç",
+        title: "Select Whisper model file",
       });
       if (selected && typeof selected === "string") {
         setLocalPath(selected);
@@ -112,7 +112,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
         setLocalInfo(info);
       }
     } catch (e) {
-      setError("Dosya seçilemedi: " + String(e));
+      setError("Could not select file: " + String(e));
     }
   };
 
@@ -127,10 +127,10 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
     try {
       const ok = await invoke<boolean>("cmd_validate_groq_key", { apiKey: apiKey.trim() });
       setGroqValid(ok);
-      if (!ok) setError("Groq API anahtarı geçersiz.");
+      if (!ok) setError("Groq API key is invalid.");
     } catch (e) {
       setGroqValid(false);
-      setError("Groq doğrulama hatası: " + String(e));
+      setError("Groq validation error: " + String(e));
     } finally {
       setValidatingGroq(false);
     }
@@ -148,7 +148,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
       await invoke("cmd_save_settings", { settings: finalSettings });
       onComplete(finalSettings);
     } catch (e) {
-      setError("Ayarlar kaydedilemedi: " + String(e));
+      setError("Could not save settings: " + String(e));
     } finally {
       setSaving(false);
     }
@@ -194,7 +194,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
             <span className="block h-4 w-4 rounded-full bg-neutral-900" />
           </div>
           <h1 className="text-lg font-bold tracking-tight">8voice</h1>
-          <p className="text-xs text-neutral-400">İlk kurulumu tamamlayın</p>
+          <p className="text-xs text-neutral-400">Complete the initial setup</p>
         </div>
 
         <nav className="flex-1 space-y-1 px-3 pb-6">
@@ -203,14 +203,14 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
             onClick={() => setMode("download")}
             icon={<DownloadIcon className="h-5 w-5" />}
           >
-            Model indir
+            Download model
           </TabButton>
           <TabButton
             active={mode === "local"}
             onClick={() => setMode("local")}
             icon={<FolderIcon className="h-5 w-5" />}
           >
-            Yerel model
+            Local model
           </TabButton>
           <TabButton
             active={mode === "groq"}
@@ -233,9 +233,9 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
 
           {mode === "download" && (
             <div className="mx-auto max-w-2xl">
-              <h2 className="mb-2 text-xl font-semibold">Model indir</h2>
+              <h2 className="mb-2 text-xl font-semibold">Download model</h2>
               <p className="mb-6 text-sm text-neutral-400">
-                HuggingFace&apos;ten Whisper modeli indir.
+                Download a Whisper model from HuggingFace.
               </p>
 
               <div className="mb-6 space-y-3">
@@ -269,7 +269,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
               {downloadStatus === "downloading" && (
                 <div className="mb-6 rounded-xl bg-neutral-800 p-4">
                   <div className="mb-2 flex items-center justify-between text-xs">
-                    <span className="text-neutral-300">İndiriliyor…</span>
+                    <span className="text-neutral-300">Downloading…</span>
                     <span className="text-neutral-400">
                       {formatBytes(progress.downloaded)}
                       {progress.total ? ` / ${formatBytes(progress.total)}` : ""}
@@ -287,14 +287,14 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
                     onClick={cancelDownload}
                     className="mt-4 w-full rounded-lg bg-neutral-700 py-2 text-xs font-medium text-neutral-200 transition hover:bg-neutral-600"
                   >
-                    İptal et
+                    Cancel
                   </button>
                 </div>
               )}
 
               {downloadStatus === "done" && selectedModel && (
                 <div className="mb-6 rounded-xl bg-emerald-500/10 p-4 text-sm text-emerald-400 ring-1 ring-emerald-500/20">
-                  <p className="font-medium">{selectedModel.name} indirildi.</p>
+                  <p className="font-medium">{selectedModel.name} downloaded.</p>
                   <p className="text-xs text-emerald-300/70">{downloadedPath}</p>
                 </div>
               )}
@@ -308,9 +308,9 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
                 >
                   {downloadStatus === "done"
                     ? saving
-                      ? "Kaydediliyor…"
-                      : "Bu modeli kullan"
-                    : "İndirmeyi başlat"}
+                      ? "Saving…"
+                      : "Use this model"
+                    : "Start download"}
                 </button>
               )}
             </div>
@@ -318,9 +318,9 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
 
           {mode === "local" && (
             <div className="mx-auto max-w-2xl">
-              <h2 className="mb-2 text-xl font-semibold">Yerel model kullan</h2>
+              <h2 className="mb-2 text-xl font-semibold">Use local model</h2>
               <p className="mb-6 text-sm text-neutral-400">
-                Daha önce indirdiğin .bin/.gguf dosyasını kullan.
+                Use a previously downloaded .bin/.gguf file.
               </p>
 
               <button
@@ -328,7 +328,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
                 onClick={chooseLocalFile}
                 className="w-full rounded-xl bg-neutral-800 py-3 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700"
               >
-                Model dosyası seç (.bin / .gguf)
+                Choose model file (.bin / .gguf)
               </button>
 
               {localPath && (
@@ -336,18 +336,18 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
                   <p className="mb-1 break-all font-mono text-xs text-neutral-300">{localPath}</p>
                   {localInfo ? (
                     <div className="text-xs">
-                      {!localInfo.exists && <p className="text-rose-400">Dosya bulunamadı.</p>}
+                      {!localInfo.exists && <p className="text-rose-400">File not found.</p>}
                       {localInfo.exists && !localInfo.valid_extension && (
-                        <p className="text-rose-400">Uzantı .bin veya .gguf olmalı.</p>
+                        <p className="text-rose-400">Extension must be .bin or .gguf.</p>
                       )}
                       {localInfo.exists && localInfo.valid_extension && (
                         <p className="text-emerald-400">
-                          Geçerli model · {formatBytes(localInfo.size_bytes)}
+                          Valid model · {formatBytes(localInfo.size_bytes)}
                         </p>
                       )}
                     </div>
                   ) : (
-                    <p className="text-xs text-neutral-500">Doğrulanıyor…</p>
+                    <p className="text-xs text-neutral-500">Validating…</p>
                   )}
                 </div>
               )}
@@ -358,7 +358,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
                 disabled={!localInfo?.exists || !localInfo?.valid_extension || saving}
                 className="mt-6 w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
               >
-                {saving ? "Kaydediliyor…" : "Bu modeli kullan"}
+                {saving ? "Saving…" : "Use this model"}
               </button>
             </div>
           )}
@@ -367,11 +367,11 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
             <div className="mx-auto max-w-2xl">
               <h2 className="mb-2 text-xl font-semibold">Groq API key</h2>
               <p className="mb-6 text-sm text-neutral-400">
-                API key ile bulut üzerinden transkripsiyon.
+                Cloud transcription via API key.
               </p>
 
               <label className="mb-4 block text-sm text-neutral-400">
-                Groq API anahtarınızı girin:
+                Enter your Groq API key:
                 <input
                   type="password"
                   value={apiKey}
@@ -390,14 +390,14 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
                 disabled={validatingGroq || !apiKey.trim()}
                 className="mb-4 w-full rounded-xl bg-neutral-800 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700 disabled:opacity-50"
               >
-                {validatingGroq ? "Doğrulanıyor…" : "Key’i doğrula"}
+                {validatingGroq ? "Validating…" : "Validate key"}
               </button>
 
               {groqValid === true && (
-                <p className="mb-4 text-sm text-emerald-400">API anahtarı geçerli.</p>
+                <p className="mb-4 text-sm text-emerald-400">API key is valid.</p>
               )}
               {groqValid === false && !error && (
-                <p className="mb-4 text-sm text-rose-400">API anahtarı geçersiz.</p>
+                <p className="mb-4 text-sm text-rose-400">API key is invalid.</p>
               )}
 
               <button
@@ -406,7 +406,7 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
                 disabled={!groqValid || saving}
                 className="w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
               >
-                {saving ? "Kaydediliyor…" : "Groq ile devam et"}
+                {saving ? "Saving…" : "Continue with Groq"}
               </button>
             </div>
           )}
