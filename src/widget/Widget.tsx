@@ -166,17 +166,18 @@ function WaveIndicator({ amplitude }: { amplitude: number }) {
   const factors = bars.map((i) => 1.0 - Math.abs(i - center) / center * 0.2);
 
   return (
-    <div className="flex h-5 w-full items-center justify-center gap-[1px] overflow-hidden px-0.5">
+    <div className="flex h-6 w-full items-center justify-center gap-[1px] overflow-hidden px-0.5">
       {bars.map((i) => {
         const pulse = 0.5 + 0.5 * Math.sin(time * 0.18 + phases[i]);
-        // Baseline scale is 1 (centered 6px bar). At full amplitude the bar
-        // scales vertically up to ~3.5x, expanding symmetrically up and down.
-        const scale = 1 + smoothAmp * pulse * factors[i] * 2.5;
+        // Baseline scale is 1 (centered 4px bar). At full amplitude the bar
+        // scales vertically so it touches the top and bottom edges of the
+        // 24px container (scale ~6x), expanding symmetrically up and down.
+        const scale = 1 + smoothAmp * pulse * factors[i] * 5.5;
         return (
           <span
             key={i}
             className="flex-1 origin-center rounded-full bg-white"
-            style={{ height: "6px", transform: `scaleY(${scale})` }}
+            style={{ height: "4px", transform: `scaleY(${scale})` }}
           />
         );
       })}
