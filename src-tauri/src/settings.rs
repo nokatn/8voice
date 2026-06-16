@@ -86,16 +86,11 @@ impl Settings {
 
 /// Runtime-managed settings shared as Tauri state.
 /// The `Arc<RwLock>` lets commands and the hotkey handler read/write safely.
-#[derive(Clone)]
-pub struct SharedSettings {
-    pub inner: Arc<RwLock<Settings>>,
-}
+pub type SharedSettings = Arc<RwLock<Settings>>;
 
 /// Creates a new shared settings wrapper.
 pub fn shared(settings: Settings) -> SharedSettings {
-    SharedSettings {
-        inner: Arc::new(RwLock::new(settings)),
-    }
+    Arc::new(RwLock::new(settings))
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

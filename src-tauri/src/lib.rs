@@ -12,8 +12,10 @@ mod transcribe;
 mod tray;
 mod vad;
 
-use settings::{ApiProvider, Settings, SharedSettings};
+use parking_lot::RwLock;
+use settings::{ApiProvider, Settings};
 use state::{AppState, StateEvent, StateMachine};
+use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -178,8 +180,8 @@ fn bootstrap(app: &AppHandle) -> tauri::Result<()> {
 
     // Update shared state
     {
-        let shared = app.state::<SharedSettings>();
-        *shared.inner.write() = loaded.clone();
+        let shared = app.state::<Arc<RwLock<Settings>>>();
+        *shared.write() = loaded.clone();
     }
 
     // Shortcut
@@ -317,14 +319,14 @@ pub fn run_pipeline(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         let ctx = app.state::<AppCtx>();
         let sm = app.state::<StateMachine>();
-        let shared = app.state::<SharedSettings>();
+        let shared = app.state::<Arc<RwLock<Settings>>>();
 
         // 1) Get PCM
         let pcm = audio::AudioCapture::drain(&ctx.audio_buf);
 
         // 2) Transcribe (copy language + provider settings)
         let (language, injection_mode, provider, api_key) = {
-            let s = shared.inner.read();
+            let s = shared.read();
             (
                 s.language.clone(),
                 s.injection_mode,
@@ -413,9 +415,9 @@ pub fn stop_recording(app: &AppHandle) {
 pub fn start_recording(app: &AppHandle) -> Result<(), String> {
     let sm = app.state::<StateMachine>();
     let ctx = app.state::<AppCtx>();
-    let shared = app.state::<SharedSettings>();
+    let shared = app.state::<Arc<RwLock<Settings>>>();
     let (device, vad_cfg) = {
-        let s = shared.inner.read();
+        let s = shared.read();
         (s.input_device.clone(), s.vad_cfg())
     };
     ctx.audio
@@ -438,8 +440,8 @@ fn cmd_get_state(state: tauri::State<'_, StateMachine>) -> (AppState, Option<Str
 }
 
 #[tauri::command]
-fn cmd_get_settings(shared: tauri::State<'_, SharedSettings>) -> Settings {
-    shared.inner.read().clone()
+fn cmd_get_settings(shared: tauri::State<'_, Arc<RwLock<Settings>>>) -> Settings {
+    shared.read().clone()
 }
 
 #[tauri::command]
@@ -451,8 +453,8 @@ fn cmd_save_settings(app: AppHandle, mut settings: Settings) -> Result<(), Strin
     settings::save(&app, &settings).map_err(|e| e.to_string())?;
     // Update shared state
     {
-        let shared = app.state::<SharedSettings>();
-        *shared.inner.write() = settings.clone();
+        let shared = app.state::<Arc<RwLock<Settings>>>();
+        *shared.write() = settings.clone();
     }
     // Re-register shortcut
     if let Err(e) = hotkey::register(&app, &settings.hotkey, settings.hotkey_mode) {
