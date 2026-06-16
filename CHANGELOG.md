@@ -18,6 +18,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - README feature list and landing-page navigation now emphasize the floating widget as a primary interaction surface.
 
+## [0.2.18] - 2026-06-16
+
+### Fixed
+
+- Made `windows`, `windows-core`, and `webview2-com` dependencies Windows-only via `[target.'cfg(windows)'.dependencies]` so that macOS and Linux release builds no longer try to compile the Windows-only `windows-future` crate.
+
+## [0.2.17] - 2026-06-16
+
+### Fixed
+
+- CI: switched macOS to `KyleMayes/install-llvm-action@v2` so `bindgen` can locate `libclang`.
+- CI: set an explicit `PKG_CONFIG_PATH` on Ubuntu so `alsa-sys` can find `alsa.pc`.
+
+## [0.2.16] - 2026-06-16
+
+### Fixed
+
+- CI: added `libasound2-dev`, `clang`, and `pkg-config` to the Ubuntu release runner to satisfy `alsa-sys` and `bindgen`.
+- CI: installed LLVM via Homebrew and exported `LIBCLANG_PATH` on macOS for `bindgen`.
+
+## [0.2.15] - 2026-06-16
+
+### Added
+
+- GitHub Actions cross-platform release workflow that builds and drafts a GitHub Release for Windows (`.msi`), macOS universal (`.dmg`), and Linux (`.AppImage`/`.deb`) on every `v*` tag push.
+
+## [0.2.14] - 2026-06-16
+
+### Added
+
+- Native right-click context menu on the floating widget with a "Quit 8voice" option.
+
+## [0.2.13] - 2026-06-16
+
+### Changed
+
+- Increased the voice-reactive wave amplitude so the bars visibly reach the top and bottom edges of the widget.
+
+## [0.2.12] - 2026-06-16
+
+### Added
+
+- New settings toggles: "Start hidden", "Launch on startup", and "Show tray icon".
+- `tauri-plugin-autostart` integration so the app can start automatically with the system.
+
+## [0.2.11] - 2026-06-16
+
+### Changed
+
+- Reworked the widget wave indicator into a center-pulsing heartbeat-style visualization.
+
+## [0.2.10] - 2026-06-16
+
+### Changed
+
+- Fine-tuned the widget wave indicator: 15 thinner bars, log-scale amplitude normalization, and faster smoothing for more responsive visual feedback.
+
+## [0.2.9] - 2026-06-16
+
+### Changed
+
+- Made the widget wave indicator full-width, more sensitive, and smoother.
+
+## [0.2.8] - 2026-06-16
+
+### Changed
+
+- Translated onboarding and loading strings from Turkish to English.
+
+## [0.2.7] - 2026-06-16
+
+### Added
+
+- Voice-reactive wave indicator on the floating widget that reflects live microphone amplitude. Rust side computes an RMS level and emits `app://audio-level` events; the widget renders a dynamic bar visualization.
+
+## [0.2.6] - 2026-06-16
+
+### Fixed
+
+- Disabled the browser context menu inside the floating widget.
+
+## [0.2.5] - 2026-06-16
+
+### Fixed
+
+- Corrected the HuggingFace Whisper model download URL by removing a duplicate `ggml-` prefix.
+
+## [0.2.4] - 2026-06-16
+
+### Fixed
+
+- Avoided direct Tauri `State` injection in `cmd_get_settings`; now uses `AppHandle::state` for better compatibility.
+
+## [0.2.3] - 2026-06-16
+
+### Fixed
+
+- Managed the settings state as an explicit `Arc<RwLock<Settings>>` for reliable Tauri state lookups.
+
+## [0.2.2] - 2026-06-16
+
+### Fixed
+
+- Converted `SharedSettings` to a named-field struct to resolve Tauri state lookup issues.
+
+## [0.2.1] - 2026-06-16
+
+### Fixed
+
+- Stabilized the Tauri `SharedSettings` state by wrapping it in a newtype.
+- Improved onboarding and settings layouts for tablet-sized screens.
+
 ## [0.2.0] - 2026-06-16
 
 ### Added
