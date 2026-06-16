@@ -8,11 +8,11 @@ interface OnboardingProps {
   onComplete: (settings: Settings) => void;
 }
 
-type OnboardingMode = "welcome" | "download" | "local" | "groq";
+type OnboardingMode = "download" | "local" | "groq";
 type DownloadStatus = "idle" | "downloading" | "done" | "error";
 
 export default function Onboarding({ initialSettings, onComplete }: OnboardingProps) {
-  const [mode, setMode] = useState<OnboardingMode>("welcome");
+  const [mode, setMode] = useState<OnboardingMode>("download");
 
   // Download flow
   const [models, setModels] = useState<WhisperModel[]>([]);
@@ -186,270 +186,260 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
   };
 
   return (
-    <main className="flex min-h-screen justify-center bg-neutral-950 px-4 py-6 text-neutral-100">
-      <div className="w-full max-w-md">
-        <header className="mb-6 flex items-center gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white shadow-lg ring-1 ring-white/20">
-            <span className="block h-5 w-5 rounded-full bg-neutral-900" />
+    <main className="flex h-screen w-screen bg-neutral-950 text-neutral-100">
+      {/* Sidebar */}
+      <aside className="flex w-64 flex-col border-r border-white/10 bg-neutral-900/50">
+        <div className="p-6">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-lg ring-1 ring-white/20">
+            <span className="block h-4 w-4 rounded-full bg-neutral-900" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">8voice</h1>
-            <p className="text-sm text-neutral-400">İlk kurulumu tamamlayın</p>
-          </div>
-        </header>
+          <h1 className="text-lg font-bold tracking-tight">8voice</h1>
+          <p className="text-xs text-neutral-400">İlk kurulumu tamamlayın</p>
+        </div>
 
-        {error && (
-          <div className="mb-4 rounded-xl bg-rose-500/10 p-3 text-sm text-rose-400 ring-1 ring-rose-500/20">
-            {error}
-          </div>
-        )}
+        <nav className="flex-1 space-y-1 px-3 pb-6">
+          <TabButton
+            active={mode === "download"}
+            onClick={() => setMode("download")}
+            icon={<DownloadIcon className="h-5 w-5" />}
+          >
+            Model indir
+          </TabButton>
+          <TabButton
+            active={mode === "local"}
+            onClick={() => setMode("local")}
+            icon={<FolderIcon className="h-5 w-5" />}
+          >
+            Yerel model
+          </TabButton>
+          <TabButton
+            active={mode === "groq"}
+            onClick={() => setMode("groq")}
+            icon={<CloudIcon className="h-5 w-5" />}
+          >
+            Groq API
+          </TabButton>
+        </nav>
+      </aside>
 
-        {mode === "welcome" && (
-          <section className="rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
-            <h2 className="mb-4 text-base font-semibold">Transkripsiyon ayarını seçin</h2>
-            <div className="flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={() => setMode("download")}
-                className="flex items-center gap-4 rounded-xl bg-neutral-800 p-4 text-left transition hover:bg-neutral-700"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
-                  <DownloadIcon className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="font-medium">Model indir</p>
-                  <p className="text-xs text-neutral-400">HuggingFace&apos;ten Whisper modeli indir.</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMode("local")}
-                className="flex items-center gap-4 rounded-xl bg-neutral-800 p-4 text-left transition hover:bg-neutral-700"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400">
-                  <FolderIcon className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="font-medium">Bilgisayarımdan seç</p>
-                  <p className="text-xs text-neutral-400">Daha önce indirdiğin .bin/.gguf dosyasını kullan.</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMode("groq")}
-                className="flex items-center gap-4 rounded-xl bg-neutral-800 p-4 text-left transition hover:bg-neutral-700"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-purple-500/20 text-purple-400">
-                  <CloudIcon className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="font-medium">Groq API kullan</p>
-                  <p className="text-xs text-neutral-400">API key ile bulut üzerinden transkripsiyon.</p>
-                </div>
-              </button>
+      {/* Content */}
+      <section className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex-1 overflow-auto p-8">
+          {error && (
+            <div className="mb-6 rounded-xl bg-rose-500/10 p-4 text-sm text-rose-400 ring-1 ring-rose-500/20">
+              {error}
             </div>
-          </section>
-        )}
+          )}
 
-        {mode === "download" && (
-          <section className="rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold">Model indir</h2>
-              <button
-                type="button"
-                onClick={() => setMode("welcome")}
-                className="text-xs text-neutral-400 hover:text-white"
-              >
-                Geri
-              </button>
-            </div>
+          {mode === "download" && (
+            <div className="mx-auto max-w-2xl">
+              <h2 className="mb-2 text-xl font-semibold">Model indir</h2>
+              <p className="mb-6 text-sm text-neutral-400">
+                HuggingFace&apos;ten Whisper modeli indir.
+              </p>
 
-            <div className="mb-4 flex flex-col gap-2">
-              {models.map((m) => (
-                <label
-                  key={m.id}
-                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
-                    selectedModelId === m.id
-                      ? "border-emerald-500/50 bg-emerald-500/10"
-                      : "border-neutral-800 bg-neutral-800/50 hover:bg-neutral-800"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="model"
-                    className="mt-1 accent-emerald-500"
-                    checked={selectedModelId === m.id}
-                    onChange={() => setSelectedModelId(m.id)}
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{m.name}</span>
-                      <span className="text-xs text-neutral-400">{m.size_human}</span>
+              <div className="mb-6 space-y-3">
+                {models.map((m) => (
+                  <label
+                    key={m.id}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition ${
+                      selectedModelId === m.id
+                        ? "border-emerald-500/50 bg-emerald-500/10"
+                        : "border-neutral-800 bg-neutral-800/50 hover:bg-neutral-800"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="model"
+                      className="mt-1 accent-emerald-500"
+                      checked={selectedModelId === m.id}
+                      onChange={() => setSelectedModelId(m.id)}
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{m.name}</span>
+                        <span className="text-xs text-neutral-400">{m.size_human}</span>
+                      </div>
+                      <p className="text-xs text-neutral-500">{m.description}</p>
                     </div>
-                    <p className="text-xs text-neutral-500">{m.description}</p>
-                  </div>
-                </label>
-              ))}
-            </div>
+                  </label>
+                ))}
+              </div>
 
-            {downloadStatus === "downloading" && (
-              <div className="mb-4 rounded-xl bg-neutral-800 p-3">
-                <div className="mb-2 flex items-center justify-between text-xs">
-                  <span className="text-neutral-300">İndiriliyor…</span>
-                  <span className="text-neutral-400">
-                    {formatBytes(progress.downloaded)}
-                    {progress.total ? ` / ${formatBytes(progress.total)}` : ""}
-                    {progress.percent != null ? ` (%${progress.percent.toFixed(1)})` : ""}
-                  </span>
+              {downloadStatus === "downloading" && (
+                <div className="mb-6 rounded-xl bg-neutral-800 p-4">
+                  <div className="mb-2 flex items-center justify-between text-xs">
+                    <span className="text-neutral-300">İndiriliyor…</span>
+                    <span className="text-neutral-400">
+                      {formatBytes(progress.downloaded)}
+                      {progress.total ? ` / ${formatBytes(progress.total)}` : ""}
+                      {progress.percent != null ? ` (%${progress.percent.toFixed(1)})` : ""}
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-700">
+                    <div
+                      className="h-full bg-emerald-500 transition-all"
+                      style={{ width: `${progress.percent ?? 0}%` }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={cancelDownload}
+                    className="mt-4 w-full rounded-lg bg-neutral-700 py-2 text-xs font-medium text-neutral-200 transition hover:bg-neutral-600"
+                  >
+                    İptal et
+                  </button>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-700">
-                  <div
-                    className="h-full bg-emerald-500 transition-all"
-                    style={{ width: `${progress.percent ?? 0}%` }}
-                  />
+              )}
+
+              {downloadStatus === "done" && selectedModel && (
+                <div className="mb-6 rounded-xl bg-emerald-500/10 p-4 text-sm text-emerald-400 ring-1 ring-emerald-500/20">
+                  <p className="font-medium">{selectedModel.name} indirildi.</p>
+                  <p className="text-xs text-emerald-300/70">{downloadedPath}</p>
                 </div>
+              )}
+
+              {downloadStatus !== "downloading" && (
                 <button
                   type="button"
-                  onClick={cancelDownload}
-                  className="mt-3 w-full rounded-lg bg-neutral-700 py-2 text-xs font-medium text-neutral-200 transition hover:bg-neutral-600"
+                  onClick={downloadStatus === "done" ? finishDownload : startDownload}
+                  disabled={saving}
+                  className="w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
                 >
-                  İptal et
+                  {downloadStatus === "done"
+                    ? saving
+                      ? "Kaydediliyor…"
+                      : "Bu modeli kullan"
+                    : "İndirmeyi başlat"}
                 </button>
-              </div>
-            )}
+              )}
+            </div>
+          )}
 
-            {downloadStatus === "done" && selectedModel && (
-              <div className="mb-4 rounded-xl bg-emerald-500/10 p-3 text-sm text-emerald-400 ring-1 ring-emerald-500/20">
-                <p className="font-medium">{selectedModel.name} indirildi.</p>
-                <p className="text-xs text-emerald-300/70">{downloadedPath}</p>
-              </div>
-            )}
+          {mode === "local" && (
+            <div className="mx-auto max-w-2xl">
+              <h2 className="mb-2 text-xl font-semibold">Yerel model kullan</h2>
+              <p className="mb-6 text-sm text-neutral-400">
+                Daha önce indirdiğin .bin/.gguf dosyasını kullan.
+              </p>
 
-            {downloadStatus !== "downloading" && (
               <button
                 type="button"
-                onClick={downloadStatus === "done" ? finishDownload : startDownload}
-                disabled={saving}
+                onClick={chooseLocalFile}
+                className="w-full rounded-xl bg-neutral-800 py-3 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700"
+              >
+                Model dosyası seç (.bin / .gguf)
+              </button>
+
+              {localPath && (
+                <div className="mt-4 rounded-xl bg-neutral-800/50 p-4 text-sm">
+                  <p className="mb-1 break-all font-mono text-xs text-neutral-300">{localPath}</p>
+                  {localInfo ? (
+                    <div className="text-xs">
+                      {!localInfo.exists && <p className="text-rose-400">Dosya bulunamadı.</p>}
+                      {localInfo.exists && !localInfo.valid_extension && (
+                        <p className="text-rose-400">Uzantı .bin veya .gguf olmalı.</p>
+                      )}
+                      {localInfo.exists && localInfo.valid_extension && (
+                        <p className="text-emerald-400">
+                          Geçerli model · {formatBytes(localInfo.size_bytes)}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-neutral-500">Doğrulanıyor…</p>
+                  )}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={finishLocal}
+                disabled={!localInfo?.exists || !localInfo?.valid_extension || saving}
+                className="mt-6 w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {saving ? "Kaydediliyor…" : "Bu modeli kullan"}
+              </button>
+            </div>
+          )}
+
+          {mode === "groq" && (
+            <div className="mx-auto max-w-2xl">
+              <h2 className="mb-2 text-xl font-semibold">Groq API key</h2>
+              <p className="mb-6 text-sm text-neutral-400">
+                API key ile bulut üzerinden transkripsiyon.
+              </p>
+
+              <label className="mb-4 block text-sm text-neutral-400">
+                Groq API anahtarınızı girin:
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => {
+                    setApiKey(e.target.value);
+                    setGroqValid(null);
+                  }}
+                  placeholder="gsk_..."
+                  className="voice-input mt-2 font-mono"
+                />
+              </label>
+
+              <button
+                type="button"
+                onClick={validateGroq}
+                disabled={validatingGroq || !apiKey.trim()}
+                className="mb-4 w-full rounded-xl bg-neutral-800 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700 disabled:opacity-50"
+              >
+                {validatingGroq ? "Doğrulanıyor…" : "Key’i doğrula"}
+              </button>
+
+              {groqValid === true && (
+                <p className="mb-4 text-sm text-emerald-400">API anahtarı geçerli.</p>
+              )}
+              {groqValid === false && !error && (
+                <p className="mb-4 text-sm text-rose-400">API anahtarı geçersiz.</p>
+              )}
+
+              <button
+                type="button"
+                onClick={finishGroq}
+                disabled={!groqValid || saving}
                 className="w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
               >
-                {downloadStatus === "done"
-                  ? saving
-                    ? "Kaydediliyor…"
-                    : "Bu modeli kullan"
-                  : "İndirmeyi başlat"}
-              </button>
-            )}
-          </section>
-        )}
-
-        {mode === "local" && (
-          <section className="rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold">Yerel model kullan</h2>
-              <button
-                type="button"
-                onClick={() => setMode("welcome")}
-                className="text-xs text-neutral-400 hover:text-white"
-              >
-                Geri
+                {saving ? "Kaydediliyor…" : "Groq ile devam et"}
               </button>
             </div>
-
-            <button
-              type="button"
-              onClick={chooseLocalFile}
-              className="w-full rounded-xl bg-neutral-800 py-3 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700"
-            >
-              Model dosyası seç (.bin / .gguf)
-            </button>
-
-            {localPath && (
-              <div className="mt-4 rounded-xl bg-neutral-800/50 p-3 text-sm">
-                <p className="mb-1 break-all font-mono text-xs text-neutral-300">{localPath}</p>
-                {localInfo ? (
-                  <div className="text-xs">
-                    {!localInfo.exists && <p className="text-rose-400">Dosya bulunamadı.</p>}
-                    {localInfo.exists && !localInfo.valid_extension && (
-                      <p className="text-rose-400">Uzantı .bin veya .gguf olmalı.</p>
-                    )}
-                    {localInfo.exists && localInfo.valid_extension && (
-                      <p className="text-emerald-400">Geçerli model · {formatBytes(localInfo.size_bytes)}</p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-xs text-neutral-500">Doğrulanıyor…</p>
-                )}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={finishLocal}
-              disabled={!localInfo?.exists || !localInfo?.valid_extension || saving}
-              className="mt-4 w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-            >
-              {saving ? "Kaydediliyor…" : "Bu modeli kullan"}
-            </button>
-          </section>
-        )}
-
-        {mode === "groq" && (
-          <section className="rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold">Groq API key</h2>
-              <button
-                type="button"
-                onClick={() => setMode("welcome")}
-                className="text-xs text-neutral-400 hover:text-white"
-              >
-                Geri
-              </button>
-            </div>
-
-            <label className="mb-3 block text-xs text-neutral-400">
-              Groq API anahtarınızı girin:
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => {
-                  setApiKey(e.target.value);
-                  setGroqValid(null);
-                }}
-                placeholder="gsk_..."
-                className="voice-input mt-1.5 font-mono"
-              />
-            </label>
-
-            <button
-              type="button"
-              onClick={validateGroq}
-              disabled={validatingGroq || !apiKey.trim()}
-              className="mb-4 w-full rounded-xl bg-neutral-800 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700 disabled:opacity-50"
-            >
-              {validatingGroq ? "Doğrulanıyor…" : "Key’i doğrula"}
-            </button>
-
-            {groqValid === true && (
-              <p className="mb-4 text-sm text-emerald-400">API anahtarı geçerli.</p>
-            )}
-            {groqValid === false && !error && (
-              <p className="mb-4 text-sm text-rose-400">API anahtarı geçersiz.</p>
-            )}
-
-            <button
-              type="button"
-              onClick={finishGroq}
-              disabled={!groqValid || saving}
-              className="w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-            >
-              {saving ? "Kaydediliyor…" : "Groq ile devam et"}
-            </button>
-          </section>
-        )}
-      </div>
+          )}
+        </div>
+      </section>
     </main>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition ${
+        active
+          ? "bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30"
+          : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+      }`}
+    >
+      {icon}
+      {children}
+    </button>
   );
 }
 

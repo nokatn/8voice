@@ -23,6 +23,9 @@ src-tauri/models/*.gguf
 # Internal docs (not for public repo)
 docs/
 
+# Landing page (separate repo: 8voice-website)
+site/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

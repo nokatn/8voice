@@ -81,6 +81,8 @@ const STATE_META: Record<
   },
 };
 
+type SettingsTab = "general" | "transcription" | "injection" | "autostop";
+
 // --- Component ---
 
 function App({ initialSettings }: { initialSettings?: Settings }) {
@@ -94,6 +96,7 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [capturingHotkey, setCapturingHotkey] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 
   useEffect(() => {
     (async () => {
@@ -159,299 +162,423 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
   const meta = STATE_META[state];
 
   return (
-    <main className="flex min-h-screen justify-center bg-neutral-950 px-4 py-6 text-neutral-100">
-      <div className="w-full max-w-md">
-        {/* Header */}
-        <header className="mb-6 flex items-center gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white shadow-lg ring-1 ring-white/20">
-            <span className="block h-5 w-5 rounded-full bg-neutral-900" />
+    <main className="flex h-screen w-screen bg-neutral-950 text-neutral-100">
+      {/* Sidebar */}
+      <aside className="flex w-64 flex-col border-r border-white/10 bg-neutral-900/50">
+        <div className="p-6">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-lg ring-1 ring-white/20">
+            <span className="block h-4 w-4 rounded-full bg-neutral-900" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">8voice</h1>
-            <p className="text-sm text-neutral-400">Voice dictation with local model or Groq API</p>
-          </div>
-        </header>
+          <h1 className="text-lg font-bold tracking-tight">8voice</h1>
+          <p className="text-xs text-neutral-400">Settings</p>
+        </div>
 
-        {/* Status card */}
-        <section
-          className={`mb-5 flex items-center gap-4 rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5 ${meta.glow}`}
-        >
-          <div
-            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-neutral-800/80 ring-1 ${meta.ring}`}
+        <nav className="flex-1 space-y-1 px-3 pb-6">
+          <TabButton
+            active={activeTab === "general"}
+            onClick={() => setActiveTab("general")}
+            icon={<MicIcon className="h-5 w-5" />}
           >
-            <WaveIndicator color={meta.bars} animate={meta.animate} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-base font-semibold">{meta.label}</p>
-            <p className="text-sm text-neutral-400 truncate">
-              {error ?? meta.description}
-            </p>
-          </div>
-          <span className="rounded-lg bg-neutral-800 px-2 py-1 text-xs font-medium text-neutral-400 ring-1 ring-white/5">
-            {settings.hotkey_mode === "push_to_talk" ? "PTT" : "TGL"}
-          </span>
-        </section>
+            General
+          </TabButton>
+          <TabButton
+            active={activeTab === "transcription"}
+            onClick={() => setActiveTab("transcription")}
+            icon={<CloudIcon className="h-5 w-5" />}
+          >
+            Transcription
+          </TabButton>
+          <TabButton
+            active={activeTab === "injection"}
+            onClick={() => setActiveTab("injection")}
+            icon={<TypeIcon className="h-5 w-5" />}
+          >
+            Injection
+          </TabButton>
+          <TabButton
+            active={activeTab === "autostop"}
+            onClick={() => setActiveTab("autostop")}
+            icon={<StopwatchIcon className="h-5 w-5" />}
+          >
+            Auto stop
+          </TabButton>
+        </nav>
+      </aside>
 
-        {/* Last transcript */}
-        {lastTranscript && (
-          <section className="mb-5 rounded-2xl border border-neutral-800/60 bg-neutral-900/60 p-4 backdrop-blur-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                Last transcript
-              </p>
-              <button
-                type="button"
-                onClick={() => copyToClipboard(lastTranscript)}
-                className="flex items-center gap-1 rounded-md bg-neutral-800 px-2 py-1 text-xs font-medium text-neutral-300 transition hover:bg-neutral-700 hover:text-white"
-              >
-                {copied ? (
-                  <>
-                    <CheckIcon className="h-3 w-3" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <CopyIcon className="h-3 w-3" />
-                    Copy
-                  </>
-                )}
-              </button>
-            </div>
-            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-200">
-              {lastTranscript}
-            </p>
-          </section>
-        )}
-
-        {/* Settings */}
-        <section className="mb-5 rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
-          <div className="mb-5 flex items-center gap-2">
-            <SettingsIcon className="h-4 w-4 text-neutral-400" />
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
-              Settings
-            </h2>
-          </div>
-
-          <div className="flex flex-col gap-5">
-            <Field label="Microphone" icon={<MicIcon className="h-3.5 w-3.5" />}>
-              <select
-                className="voice-input"
-                value={settings.input_device ?? ""}
-                onChange={(e) =>
-                  update({
-                    input_device: e.target.value || null,
-                  })
-                }
-              >
-                <option value="">System default</option>
-                {devices.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field
-              label="Transcription provider"
-              icon={<CloudIcon className="h-3.5 w-3.5" />}
+      {/* Content */}
+      <section className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex-1 overflow-auto p-8">
+          {/* Status card */}
+          <div
+            className={`mb-6 flex items-center gap-4 rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5 ${meta.glow}`}
+          >
+            <div
+              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-neutral-800/80 ring-1 ${meta.ring}`}
             >
-              <select
-                className="voice-input"
-                value={settings.api_provider}
-                onChange={(e) =>
-                  update({
-                    api_provider: e.target.value as Settings["api_provider"],
-                  })
-                }
-              >
-                <option value="offline">Local model (offline)</option>
-                <option value="groq">Groq Whisper API</option>
-              </select>
-            </Field>
-
-            {settings.api_provider === "offline" ? (
-              <Field label="Model path" icon={<FileIcon className="h-3.5 w-3.5" />}>
-                <div className="flex gap-2">
-                  <input
-                    className="voice-input font-mono text-xs"
-                    value={settings.model_path}
-                    onChange={(e) => update({ model_path: e.target.value })}
-                    placeholder="models/ggml-small.bin"
-                  />
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        const selected = await open({
-                          multiple: false,
-                          directory: false,
-                          filters: [
-                            { name: "GGML/Whisper model", extensions: ["bin"] },
-                            { name: "All files", extensions: ["*"] },
-                          ],
-                          title: "Choose Whisper model file",
-                        });
-                        if (selected && typeof selected === "string") {
-                          update({ model_path: selected });
-                        }
-                      } catch (e) {
-                        console.error("Could not select model:", e);
-                      }
-                    }}
-                    className="shrink-0 rounded-lg bg-neutral-800 px-3 text-xs font-semibold text-neutral-200 transition hover:bg-neutral-700 hover:text-white"
-                  >
-                    Browse
-                  </button>
-                </div>
-              </Field>
-            ) : (
-              <Field label="Groq API key" icon={<KeyIcon className="h-3.5 w-3.5" />}>
-                <input
-                  type="password"
-                  className="voice-input font-mono text-xs"
-                  value={settings.api_key ?? ""}
-                  onChange={(e) =>
-                    update({ api_key: e.target.value || null })
-                  }
-                  placeholder="gsk_..."
-                />
-              </Field>
-            )}
-
-            <Field label="Language" icon={<GlobeIcon className="h-3.5 w-3.5" />}>
-              <select
-                className="voice-input"
-                value={settings.language}
-                onChange={(e) => update({ language: e.target.value })}
-              >
-                <option value="auto">Auto</option>
-                <option value="tr">Turkish</option>
-                <option value="en">English</option>
-              </select>
-            </Field>
-
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Shortcut mode">
-                <select
-                  className="voice-input"
-                  value={settings.hotkey_mode}
-                  onChange={(e) =>
-                    update({
-                      hotkey_mode: e.target.value as Settings["hotkey_mode"],
-                    })
-                  }
-                >
-                  <option value="push_to_talk">Hold to talk</option>
-                  <option value="toggle">Toggle</option>
-                </select>
-              </Field>
-
-              <Field label="Shortcut">
-                <HotkeyCapture
-                  value={settings.hotkey}
-                  capturing={capturingHotkey}
-                  onStart={() => setCapturingHotkey(true)}
-                  onCapture={(hotkey) => {
-                    setCapturingHotkey(false);
-                    update({ hotkey });
-                  }}
-                  onCancel={() => setCapturingHotkey(false)}
-                />
-              </Field>
+              <WaveIndicator color={meta.bars} animate={meta.animate} />
             </div>
-
-            <Field label="Injection mode" icon={<TypeIcon className="h-3.5 w-3.5" />}>
-              <select
-                className="voice-input"
-                value={settings.injection_mode}
-                onChange={(e) =>
-                  update({
-                    injection_mode: e.target
-                      .value as Settings["injection_mode"],
-                  })
-                }
-              >
-                <option value="auto">Auto (paste long text)</option>
-                <option value="typing">Always type</option>
-                <option value="paste">Always paste</option>
-              </select>
-            </Field>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-semibold">{meta.label}</p>
+              <p className="truncate text-sm text-neutral-400">
+                {error ?? meta.description}
+              </p>
+            </div>
+            <span className="rounded-lg bg-neutral-800 px-2 py-1 text-xs font-medium text-neutral-400 ring-1 ring-white/5">
+              {settings.hotkey_mode === "push_to_talk" ? "PTT" : "TGL"}
+            </span>
           </div>
 
-          <p className="mt-5 text-xs text-neutral-500">
+          {/* Last transcript */}
+          {lastTranscript && (
+            <section className="mb-6 rounded-2xl border border-neutral-800/60 bg-neutral-900/60 p-4 backdrop-blur-sm">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                  Last transcript
+                </p>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(lastTranscript)}
+                  className="flex items-center gap-1 rounded-md bg-neutral-800 px-2 py-1 text-xs font-medium text-neutral-300 transition hover:bg-neutral-700 hover:text-white"
+                >
+                  {copied ? (
+                    <>
+                      <CheckIcon className="h-3 w-3" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon className="h-3 w-3" />
+                      Copy
+                    </>
+                  )}
+                </button>
+              </div>
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-200">
+                {lastTranscript}
+              </p>
+            </section>
+          )}
+
+          {/* Tab content */}
+          <div className="rounded-2xl bg-neutral-900 p-6 shadow-lg ring-1 ring-white/5">
+            {activeTab === "general" && (
+              <GeneralTab
+                settings={settings}
+                devices={devices}
+                capturingHotkey={capturingHotkey}
+                setCapturingHotkey={setCapturingHotkey}
+                update={update}
+              />
+            )}
+            {activeTab === "transcription" && (
+              <TranscriptionTab settings={settings} update={update} />
+            )}
+            {activeTab === "injection" && (
+              <InjectionTab settings={settings} update={update} />
+            )}
+            {activeTab === "autostop" && (
+              <AutoStopTab settings={settings} update={update} />
+            )}
+          </div>
+
+          <p className="mt-4 text-xs text-neutral-500">
             {saving ? "Saving…" : "Changes are saved automatically."}
           </p>
-        </section>
-
-        {/* Auto stop (VAD) */}
-        <section className="rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
-          <div className="mb-5 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <StopwatchIcon className="h-4 w-4 text-neutral-400" />
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
-                Auto stop
-              </h2>
-            </div>
-            <label className="relative inline-flex cursor-pointer items-center">
-              <input
-                type="checkbox"
-                className="peer sr-only"
-                checked={settings.vad_enabled}
-                onChange={(e) => update({ vad_enabled: e.target.checked })}
-              />
-              <div className="h-6 w-11 rounded-full bg-neutral-700 transition peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-emerald-500/30 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-5" />
-            </label>
-          </div>
-
-          {settings.vad_enabled ? (
-            <div className="flex flex-col gap-5">
-              <p className="text-sm text-neutral-400">
-                Recording stops automatically after{" "}
-                <span className="font-semibold text-neutral-200">
-                  {settings.vad_silence_ms} ms
-                </span>{" "}
-                of silence once you stop speaking.
-              </p>
-              <Field label={`Silence threshold: ${settings.vad_silence_ms} ms`}>
-                <input
-                  type="range"
-                  min={400}
-                  max={3000}
-                  step={100}
-                  className="w-full accent-emerald-500"
-                  value={settings.vad_silence_ms}
-                  onChange={(e) =>
-                    update({ vad_silence_ms: Number(e.target.value) })
-                  }
-                />
-              </Field>
-              <Field label="Aggressiveness">
-                <select
-                  className="voice-input"
-                  value={settings.vad_aggressiveness}
-                  onChange={(e) =>
-                    update({ vad_aggressiveness: Number(e.target.value) })
-                  }
-                >
-                  <option value={1}>1 — Low (may miss speech)</option>
-                  <option value={2}>2 — Balanced (recommended)</option>
-                  <option value={3}>3 — High (clean stop in noise)</option>
-                </select>
-              </Field>
-            </div>
-          ) : (
-            <p className="text-sm text-neutral-400">
-              Off — manual stop via shortcut only.
-            </p>
-          )}
-        </section>
-
-        <footer className="mt-6 text-center text-xs text-neutral-600">
-          8voice · {settings.hotkey}
-        </footer>
-      </div>
+        </div>
+      </section>
     </main>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition ${
+        active
+          ? "bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30"
+          : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+      }`}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function GeneralTab({
+  settings,
+  devices,
+  capturingHotkey,
+  setCapturingHotkey,
+  update,
+}: {
+  settings: Settings;
+  devices: string[];
+  capturingHotkey: boolean;
+  setCapturingHotkey: (v: boolean) => void;
+  update: (patch: Partial<Settings>) => void;
+}) {
+  return (
+    <div className="grid gap-6">
+      <div>
+        <h2 className="mb-1 text-lg font-semibold">General</h2>
+        <p className="text-sm text-neutral-400">Microphone, language and shortcut preferences.</p>
+      </div>
+
+      <div className="grid gap-5 md:grid-cols-2">
+        <Field label="Microphone" icon={<MicIcon className="h-3.5 w-3.5" />}>
+          <select
+            className="voice-input"
+            value={settings.input_device ?? ""}
+            onChange={(e) =>
+              update({
+                input_device: e.target.value || null,
+              })
+            }
+          >
+            <option value="">System default</option>
+            {devices.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Language" icon={<GlobeIcon className="h-3.5 w-3.5" />}>
+          <select
+            className="voice-input"
+            value={settings.language}
+            onChange={(e) => update({ language: e.target.value })}
+          >
+            <option value="auto">Auto</option>
+            <option value="tr">Turkish</option>
+            <option value="en">English</option>
+          </select>
+        </Field>
+
+        <Field label="Shortcut mode">
+          <select
+            className="voice-input"
+            value={settings.hotkey_mode}
+            onChange={(e) =>
+              update({
+                hotkey_mode: e.target.value as Settings["hotkey_mode"],
+              })
+            }
+          >
+            <option value="push_to_talk">Hold to talk</option>
+            <option value="toggle">Toggle</option>
+          </select>
+        </Field>
+
+        <Field label="Shortcut">
+          <HotkeyCapture
+            value={settings.hotkey}
+            capturing={capturingHotkey}
+            onStart={() => setCapturingHotkey(true)}
+            onCapture={(hotkey) => {
+              setCapturingHotkey(false);
+              update({ hotkey });
+            }}
+            onCancel={() => setCapturingHotkey(false)}
+          />
+        </Field>
+      </div>
+    </div>
+  );
+}
+
+function TranscriptionTab({
+  settings,
+  update,
+}: {
+  settings: Settings;
+  update: (patch: Partial<Settings>) => void;
+}) {
+  return (
+    <div className="grid gap-6">
+      <div>
+        <h2 className="mb-1 text-lg font-semibold">Transcription</h2>
+        <p className="text-sm text-neutral-400">Choose how your speech is converted to text.</p>
+      </div>
+
+      <Field label="Transcription provider" icon={<CloudIcon className="h-3.5 w-3.5" />}>
+        <select
+          className="voice-input"
+          value={settings.api_provider}
+          onChange={(e) =>
+            update({
+              api_provider: e.target.value as Settings["api_provider"],
+            })
+          }
+        >
+          <option value="offline">Local model (offline)</option>
+          <option value="groq">Groq Whisper API</option>
+        </select>
+      </Field>
+
+      {settings.api_provider === "offline" ? (
+        <Field label="Model path" icon={<FileIcon className="h-3.5 w-3.5" />}>
+          <div className="flex gap-2">
+            <input
+              className="voice-input font-mono text-xs"
+              value={settings.model_path}
+              onChange={(e) => update({ model_path: e.target.value })}
+              placeholder="models/ggml-small.bin"
+            />
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const selected = await open({
+                    multiple: false,
+                    directory: false,
+                    filters: [
+                      { name: "GGML/Whisper model", extensions: ["bin"] },
+                      { name: "All files", extensions: ["*"] },
+                    ],
+                    title: "Choose Whisper model file",
+                  });
+                  if (selected && typeof selected === "string") {
+                    update({ model_path: selected });
+                  }
+                } catch (e) {
+                  console.error("Could not select model:", e);
+                }
+              }}
+              className="shrink-0 rounded-lg bg-neutral-800 px-3 text-xs font-semibold text-neutral-200 transition hover:bg-neutral-700 hover:text-white"
+            >
+              Browse
+            </button>
+          </div>
+        </Field>
+      ) : (
+        <Field label="Groq API key" icon={<KeyIcon className="h-3.5 w-3.5" />}>
+          <input
+            type="password"
+            className="voice-input font-mono text-xs"
+            value={settings.api_key ?? ""}
+            onChange={(e) =>
+              update({ api_key: e.target.value || null })
+            }
+            placeholder="gsk_..."
+          />
+        </Field>
+      )}
+    </div>
+  );
+}
+
+function InjectionTab({
+  settings,
+  update,
+}: {
+  settings: Settings;
+  update: (patch: Partial<Settings>) => void;
+}) {
+  return (
+    <div className="grid gap-6">
+      <div>
+        <h2 className="mb-1 text-lg font-semibold">Injection</h2>
+        <p className="text-sm text-neutral-400">How the transcribed text is inserted into the active window.</p>
+      </div>
+
+      <Field label="Injection mode" icon={<TypeIcon className="h-3.5 w-3.5" />}>
+        <select
+          className="voice-input"
+          value={settings.injection_mode}
+          onChange={(e) =>
+            update({
+              injection_mode: e.target.value as Settings["injection_mode"],
+            })
+          }
+        >
+          <option value="auto">Auto (paste long text)</option>
+          <option value="typing">Always type</option>
+          <option value="paste">Always paste</option>
+        </select>
+      </Field>
+    </div>
+  );
+}
+
+function AutoStopTab({
+  settings,
+  update,
+}: {
+  settings: Settings;
+  update: (patch: Partial<Settings>) => void;
+}) {
+  return (
+    <div className="grid gap-6">
+      <div>
+        <h2 className="mb-1 text-lg font-semibold">Auto stop</h2>
+        <p className="text-sm text-neutral-400">Stop recording automatically when you stop speaking.</p>
+      </div>
+
+      <div className="flex items-center justify-between rounded-xl bg-neutral-800/50 p-4">
+        <div>
+          <p className="font-medium">Enable voice activity detection</p>
+          <p className="text-xs text-neutral-400">Recording stops after silence is detected.</p>
+        </div>
+        <label className="relative inline-flex cursor-pointer items-center">
+          <input
+            type="checkbox"
+            className="peer sr-only"
+            checked={settings.vad_enabled}
+            onChange={(e) => update({ vad_enabled: e.target.checked })}
+          />
+          <div className="h-6 w-11 rounded-full bg-neutral-700 transition peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-emerald-500/30 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-5" />
+        </label>
+      </div>
+
+      {settings.vad_enabled ? (
+        <div className="grid gap-5 md:grid-cols-2">
+          <Field label={`Silence threshold: ${settings.vad_silence_ms} ms`}>
+            <input
+              type="range"
+              min={400}
+              max={3000}
+              step={100}
+              className="w-full accent-emerald-500"
+              value={settings.vad_silence_ms}
+              onChange={(e) =>
+                update({ vad_silence_ms: Number(e.target.value) })
+              }
+            />
+          </Field>
+
+          <Field label="Aggressiveness">
+            <select
+              className="voice-input"
+              value={settings.vad_aggressiveness}
+              onChange={(e) =>
+                update({ vad_aggressiveness: Number(e.target.value) })
+              }
+            >
+              <option value={1}>1 — Low (may miss speech)</option>
+              <option value={2}>2 — Balanced (recommended)</option>
+              <option value={3}>3 — High (clean stop in noise)</option>
+            </select>
+          </Field>
+        </div>
+      ) : (
+        <p className="text-sm text-neutral-400">Off — manual stop via shortcut only.</p>
+      )}
+    </div>
   );
 }
 
@@ -634,15 +761,6 @@ function WaveIndicator({
 
 // --- Icons ---
 
-function SettingsIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  );
-}
-
 function MicIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -650,15 +768,6 @@ function MicIcon({ className }: { className?: string }) {
       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
       <line x1="12" y1="19" x2="12" y2="23" />
       <line x1="8" y1="23" x2="16" y2="23" />
-    </svg>
-  );
-}
-
-function FileIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-      <polyline points="14 2 14 8 20 8" />
     </svg>
   );
 }
@@ -699,6 +808,15 @@ function CloudIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17.5 19c0-1.7-1.3-3-3-3h-11a3 3 0 0 1-3-3c0-1.6 1.2-2.9 2.8-3a5 5 0 0 1 9.4-1.6 3 3 0 0 1 4.3 2.6 3.5 3.5 0 0 1 .5 6.9V19z" />
+    </svg>
+  );
+}
+
+function FileIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
     </svg>
   );
 }
