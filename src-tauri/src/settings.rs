@@ -50,13 +50,13 @@ pub struct Settings {
     /// Whether the first-run onboarding has been completed.
     #[serde(default)]
     pub has_completed_onboarding: bool,
-    /// Start the app hidden (no main/widget window shown).
-    #[serde(default = "default_start_hidden")]
-    pub start_hidden: bool,
     /// Launch the app when the user logs in.
     #[serde(default = "default_launch_on_startup")]
     pub launch_on_startup: bool,
-    /// Show the system tray icon.
+    /// Start the app without showing any windows.
+    #[serde(default)]
+    pub start_hidden: bool,
+    /// Show the 8voice icon in the system tray.
     #[serde(default = "default_show_tray_icon")]
     pub show_tray_icon: bool,
 }
@@ -80,7 +80,6 @@ impl Settings {
     }
 
     /// Sanitizes critical fields; e.g. empty hotkey falls back to default.
-    /// Also ensures the user cannot hide both the tray icon and all windows.
     pub fn sanitize(&mut self) {
         if self.hotkey.trim().is_empty() {
             self.hotkey = default_hotkey();
@@ -90,10 +89,6 @@ impl Settings {
             if self.api_key.as_deref().unwrap_or("").trim().is_empty() {
                 self.api_provider = ApiProvider::Offline;
             }
-        }
-        // Cannot start hidden if there is no tray icon to reopen the app.
-        if self.start_hidden && !self.show_tray_icon {
-            self.show_tray_icon = true;
         }
     }
 }
@@ -159,14 +154,8 @@ fn default_vad_aggressiveness() -> u8 {
 fn default_api_provider() -> ApiProvider {
     ApiProvider::Offline
 }
-fn default_start_hidden() -> bool {
-    false
-}
 fn default_launch_on_startup() -> bool {
     false
-}
-fn default_show_tray_icon() -> bool {
-    true
 }
 
 impl Default for Settings {
@@ -184,9 +173,7 @@ impl Default for Settings {
             api_provider: default_api_provider(),
             api_key: None,
             has_completed_onboarding: false,
-            start_hidden: default_start_hidden(),
             launch_on_startup: default_launch_on_startup(),
-            show_tray_icon: default_show_tray_icon(),
         }
     }
 }

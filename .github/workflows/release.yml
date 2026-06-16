@@ -65,13 +65,13 @@ jobs:
 
       - name: Set environment variables (macOS only)
         if: matrix.platform == 'macos-latest'
-        run: |
-          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
-          echo "MACOSX_DEPLOYMENT_TARGET=10.15" >> "$GITHUB_ENV"
+        run: echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
 
       - name: Set environment variables (Ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
-        run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "$GITHUB_ENV"
+        run: |
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
       - name: Install frontend dependencies
         run: npm ci
@@ -80,6 +80,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MACOSX_DEPLOYMENT_TARGET: '10.15'
+          CMAKE_OSX_DEPLOYMENT_TARGET: '10.15'
         with:
           tagName: ${{ github.ref_name }}
           releaseName: '8voice ${{ github.ref_name }}'

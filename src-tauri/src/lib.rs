@@ -22,11 +22,20 @@ use tauri::{
     AppHandle, Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_updater::UpdaterExt;
 
 /// Globally shared application state.
 pub struct AppCtx {
     pub audio: audio::AudioCapture,
     pub audio_buf: audio::SharedBuffer,
+}
+
+/// Minimal update metadata sent to the frontend.
+#[derive(serde::Serialize, Clone)]
+pub struct UpdateInfo {
+    pub version: String,
+    pub date: Option<String>,
+    pub body: Option<String>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -50,6 +59,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None::<Vec<&str>>,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // --- State: register before setup so it is available during window init ---
         .manage(StateMachine::new())
         .manage(AppCtx {
@@ -70,6 +80,14 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = bootstrap(&handle) {
                     tracing::error!("Bootstrap error: {e:#}");
+                }
+            });
+
+            // --- Check for app updates in the background ---
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = check_for_update(&handle).await {
+                    tracing::warn!("Update check failed: {e:#}");
                 }
             });
 
@@ -103,6 +121,8 @@ pub fn run() {
             onboarding::cmd_cancel_download,
             onboarding::cmd_validate_local_model,
             onboarding::cmd_validate_groq_key,
+            cmd_check_update,
+            cmd_install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -192,11 +212,6 @@ fn bootstrap(app: &AppHandle) -> tauri::Result<()> {
         tracing::warn!("Could not register shortcut: {e:#}");
     }
 
-    // Apply tray icon visibility
-    if let Some(tray) = app.tray_by_id("main") {
-        let _ = tray.set_visible(loaded.show_tray_icon);
-    }
-
     // If first run, show the main window for onboarding and hide the widget
     // so the setup screen is not covered by the floating mic.
     if !loaded.has_completed_onboarding {
@@ -204,14 +219,6 @@ fn bootstrap(app: &AppHandle) -> tauri::Result<()> {
             let _ = widget.hide();
         }
         open_settings(app);
-    } else if loaded.start_hidden {
-        // User wants a hidden start: hide both windows.
-        if let Some(widget) = app.get_webview_window("widget") {
-            let _ = widget.hide();
-        }
-        if let Some(main) = app.get_webview_window("main") {
-            let _ = main.hide();
-        }
     }
 
     // Model preload (if path is valid) — only needed in offline mode
@@ -504,18 +511,8 @@ fn cmd_save_settings(app: AppHandle, mut settings: Settings) -> Result<(), Strin
         }
     }
 
-    // Apply tray icon visibility change immediately
-    if settings.show_tray_icon != old_settings.show_tray_icon {
-        if let Some(tray) = app.tray_by_id("main") {
-            if let Err(e) = tray.set_visible(settings.show_tray_icon) {
-                tracing::warn!("Could not change tray visibility: {e:#}");
-            }
-        }
-    }
-
-    // Once onboarding is complete, make sure the recording widget is visible
-    // unless the user explicitly wants a hidden start.
-    if settings.has_completed_onboarding && !settings.start_hidden {
+    // Once onboarding is complete, make sure the recording widget is visible.
+    if settings.has_completed_onboarding {
         if let Some(widget) = app.get_webview_window("widget") {
             let _ = widget.show();
         }
@@ -596,4 +593,74 @@ fn cmd_widget_context_menu(app: AppHandle, x: f64, y: f64) -> Result<(), String>
     .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Auto-updater helpers
+// ---------------------------------------------------------------------------
+
+/// Checks for an update and notifies the frontend if one is available.
+async fn check_for_update(app: &AppHandle) -> tauri_plugin_updater::Result<()> {
+    let updater = app.updater()?;
+    if let Some(update) = updater.check().await? {
+        let info = UpdateInfo {
+            version: update.version.clone(),
+            date: update.date.map(|d| d.to_string()),
+            body: update.body.clone(),
+        };
+        tracing::info!(
+            "Update available: {} ({})",
+            info.version,
+            info.date.as_deref().unwrap_or("unknown date")
+        );
+        // The frontend listens for this event and shows the update prompt.
+        let _ = app.emit("app://update-available", info);
+    } else {
+        tracing::debug!("No update available");
+    }
+    Ok(())
+}
+
+/// Frontend command: manually check for updates.
+#[tauri::command]
+async fn cmd_check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await.map_err(|e| e.to_string())? {
+        Some(update) => Ok(Some(UpdateInfo {
+            version: update.version,
+            date: update.date.map(|d| d.to_string()),
+            body: update.body,
+        })),
+        None => Ok(None),
+    }
+}
+
+/// Frontend command: download and install the pending update, then restart.
+#[tauri::command]
+async fn cmd_install_update(app: AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("No update available")?;
+
+    let _ = app.emit("app://update-progress", "downloading");
+
+    update
+        .download_and_install(
+            |chunk, total| {
+                tracing::debug!("Downloaded {} of {:?} bytes", chunk, total);
+            },
+            || {
+                tracing::info!("Update downloaded; installing...");
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = app.emit("app://update-progress", "installed");
+
+    // Restart the app to apply the update.
+    app.restart();
 }

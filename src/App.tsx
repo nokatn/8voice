@@ -26,9 +26,7 @@ const DEFAULT_SETTINGS: Settings = {
   api_provider: "offline",
   api_key: null,
   has_completed_onboarding: false,
-  start_hidden: false,
   launch_on_startup: false,
-  show_tray_icon: true,
 };
 
 const STATE_META: Record<
@@ -86,6 +84,12 @@ const STATE_META: Record<
 
 type SettingsTab = "general" | "transcription" | "injection" | "autostop";
 
+type UpdateInfo = {
+  version: string;
+  date?: string;
+  body?: string;
+};
+
 // --- Component ---
 
 function App({ initialSettings }: { initialSettings?: Settings }) {
@@ -100,6 +104,9 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
   const [copied, setCopied] = useState(false);
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<null | "downloading" | "installed">(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -122,6 +129,8 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
   useEffect(() => {
     let un: UnlistenFn | undefined;
     let unT: UnlistenFn | undefined;
+    let unU: UnlistenFn | undefined;
+    let unUP: UnlistenFn | undefined;
     (async () => {
       un = await listen<{ state: AppState; previous: AppState }>(
         "app://state-changed",
@@ -131,10 +140,20 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
         setLastTranscript(e.payload);
         copyToClipboard(e.payload);
       });
+      unU = await listen<UpdateInfo>("app://update-available", (e) => {
+        setUpdateAvailable(e.payload);
+      });
+      unUP = await listen<string>("app://update-progress", (e) => {
+        if (e.payload === "downloading" || e.payload === "installed") {
+          setUpdateProgress(e.payload);
+        }
+      });
     })();
     return () => {
       un?.();
       unT?.();
+      unU?.();
+      unUP?.();
     };
   }, []);
 
@@ -211,6 +230,48 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
       {/* Content */}
       <section className="flex flex-1 flex-col overflow-hidden">
         <div className="flex-1 overflow-auto p-8">
+          {/* Update banner */}
+          {updateAvailable && (
+            <div className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 shadow-lg">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-emerald-300">
+                    New version available: {updateAvailable.version}
+                  </p>
+                  {updateAvailable.body && (
+                    <p className="mt-1 line-clamp-2 text-xs text-emerald-200/70">
+                      {updateAvailable.body}
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {updateProgress === "downloading" ? (
+                    <span className="text-xs font-medium text-emerald-300">Downloading…</span>
+                  ) : updateProgress === "installed" ? (
+                    <span className="text-xs font-medium text-emerald-300">Restarting…</span>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setUpdateAvailable(null)}
+                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-200/80 transition hover:bg-emerald-500/10 hover:text-emerald-200"
+                      >
+                        Later
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => invoke("cmd_install_update")}
+                        className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-neutral-950 transition hover:bg-emerald-400"
+                      >
+                        Update now
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Status card */}
           <div
             className={`mb-6 flex items-center gap-4 rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5 ${meta.glow}`}
@@ -406,30 +467,46 @@ function GeneralTab({
         <p className="mb-4 text-sm text-neutral-400">Control how 8voice starts and appears.</p>
         <div className="grid gap-3">
           <Toggle
-            label="Start hidden"
-            description="Launch without showing any windows."
-            checked={settings.start_hidden}
-            onChange={(checked) =>
-              update({ start_hidden: checked, show_tray_icon: true })
-            }
-          />
-          <Toggle
             label="Launch on startup"
             description="Start 8voice automatically when you log in."
             checked={settings.launch_on_startup}
             onChange={(checked) => update({ launch_on_startup: checked })}
           />
-          <Toggle
-            label="Show tray icon"
-            description="Show the 8voice icon in the system tray."
-            checked={settings.show_tray_icon}
-            onChange={(checked) =>
-              update({
-                show_tray_icon: checked,
-                start_hidden: checked ? settings.start_hidden : false,
-              })
-            }
-          />
+        </div>
+
+        <div className="mt-4 flex items-center justify-between rounded-xl bg-neutral-800/50 p-4">
+          <div>
+            <p className="font-medium">Updates</p>
+            <p className="text-xs text-neutral-400">
+              {checkingUpdate
+                ? "Checking for updates…"
+                : updateAvailable
+                  ? `Version ${updateAvailable.version} is ready to install.`
+                  : "8voice checks for updates automatically on startup."}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={checkingUpdate}
+            onClick={async () => {
+              setCheckingUpdate(true);
+              try {
+                const info = await invoke<UpdateInfo | null>("cmd_check_update");
+                if (info) {
+                  setUpdateAvailable(info);
+                } else {
+                  setUpdateAvailable(null);
+                }
+              } catch (e) {
+                console.error("Update check failed:", e);
+              } finally {
+                setCheckingUpdate(false);
+              }
+            }}
+            className="shrink-0 rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-neutral-200 transition hover:bg-neutral-700 hover:text-white disabled:opacity-50"
+          >
+            Check now
+          </button>
         </div>
       </div>
     </div>
