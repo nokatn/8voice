@@ -69,21 +69,3 @@ body,
   }
 }
 
-/* Compact wave animation for the floating widget.
-   Bar height oscillates between 4px and 16px to fit the 40px widget. */
-.voice-wave-sm {
-  animation: voice-wave-sm 800ms ease-in-out infinite alternate;
-}
-@keyframes voice-wave-sm {
-  0%   { height: 4px; }
-  25%  { height: 12px; }
-  50%  { height: 7px; }
-  75%  { height: 16px; }
-  100% { height: 5px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .voice-wave-sm {
-    animation: none;
-    height: 8px;
-  }
-}

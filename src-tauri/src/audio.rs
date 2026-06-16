@@ -23,7 +23,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::settings::VadCfg;
 use crate::vad::VadEngine;
@@ -56,6 +56,9 @@ pub struct AudioCapture {
     /// Accumulated continuous silence (ms). Written by VAD, read by watcher.
     /// Reset when speech is detected.
     silence_ms: Arc<AtomicU32>,
+    /// Latest input RMS level in `[0,1]` (stored as f32 bits). Updated by the
+    /// audio callback and read by the amplitude publisher thread.
+    amplitude: Arc<AtomicU32>,
     /// Signal to stop the watcher. `stop()` sets this to true.
     watcher_cancel: Arc<AtomicBool>,
 }
@@ -65,6 +68,7 @@ impl AudioCapture {
     pub fn new() -> (Self, SharedBuffer) {
         let buf = Arc::new(Mutex::new(VecDeque::with_capacity(BUFFER_CAP)));
         let silence_ms = Arc::new(AtomicU32::new(0));
+        let amplitude = Arc::new(AtomicU32::new(0));
         let watcher_cancel = Arc::new(AtomicBool::new(false));
         (
             Self {
@@ -73,6 +77,7 @@ impl AudioCapture {
                 active: Mutex::new(false),
                 vad: Arc::new(Mutex::new(None)),
                 silence_ms,
+                amplitude,
                 watcher_cancel,
             },
             buf,
@@ -151,6 +156,7 @@ impl AudioCapture {
         let resampler = Arc::new(Mutex::new(resampler_state));
         let vad = Arc::clone(&self.vad);
         let silence_ms = Arc::clone(&self.silence_ms);
+        let amplitude = Arc::clone(&self.amplitude);
         let err_fn = |err: cpal::StreamError| {
             tracing::error!("Audio stream error: {err}");
         };
@@ -159,7 +165,7 @@ impl AudioCapture {
             SampleFormat::F32 => device.build_input_stream(
                 &config,
                 move |data: &[f32], _: &_| {
-                    handle_input(data, channels, &buf, &resampler, needs_resample, &vad, &silence_ms);
+                    handle_input(data, channels, &buf, &resampler, needs_resample, &vad, &silence_ms, &amplitude);
                 },
                 err_fn,
                 None,
@@ -168,7 +174,7 @@ impl AudioCapture {
                 &config,
                 move |data: &[i16], _: &_| {
                     let f: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                    handle_input(&f, channels, &buf, &resampler, needs_resample, &vad, &silence_ms);
+                    handle_input(&f, channels, &buf, &resampler, needs_resample, &vad, &silence_ms, &amplitude);
                 },
                 err_fn,
                 None,
@@ -180,7 +186,7 @@ impl AudioCapture {
                         .iter()
                         .map(|&s| (s as f32 - 32_768.0) / 32_768.0)
                         .collect();
-                    handle_input(&f, channels, &buf, &resampler, needs_resample, &vad, &silence_ms);
+                    handle_input(&f, channels, &buf, &resampler, needs_resample, &vad, &silence_ms, &amplitude);
                 },
                 err_fn,
                 None,
@@ -203,6 +209,13 @@ impl AudioCapture {
             );
         }
 
+        // Publish real-time audio level to the widget
+        spawn_amplitude_publisher(
+            app.clone(),
+            Arc::clone(&self.amplitude),
+            Arc::clone(&self.watcher_cancel),
+        );
+
         Ok(())
     }
 
@@ -213,6 +226,7 @@ impl AudioCapture {
             *active = false;
         }
         self.watcher_cancel.store(true, Ordering::Relaxed);
+        self.amplitude.store(0, Ordering::Relaxed);
         let stream = self.stream.lock().take();
         drop(stream);
     }
@@ -243,6 +257,7 @@ fn handle_input(
     needs_resample: bool,
     vad: &Arc<Mutex<Option<VadEngine>>>,
     silence_ms: &AtomicU32,
+    amplitude: &AtomicU32,
 ) {
     let mono: Vec<f32> = if channels > 1 {
         interleaved
@@ -282,6 +297,18 @@ fn handle_input(
         }
     }
     drop(guard);
+
+    // Compute input level for the widget wave visualization.
+    let rms = if final_samples.is_empty() {
+        0.0
+    } else {
+        let sum_sq: f32 = final_samples.iter().map(|&s| s * s).sum();
+        (sum_sq / final_samples.len() as f32).sqrt()
+    };
+    // Heuristic normalization: quiet speech ~0.05-0.1 RMS, normal ~0.1-0.3,
+    // loud >0.3. Boost so normal speech produces a clearly visible wave.
+    let level = (rms * 5.0).min(1.0);
+    amplitude.store(level.to_bits(), Ordering::Relaxed);
 
     let mut b = buf.lock();
     for &s in &final_samples {
@@ -325,6 +352,32 @@ fn spawn_vad_watcher(
             }
         })
         .expect("Could not start VAD watcher thread");
+}
+
+/// Periodic task that publishes the latest input RMS level to the widget.
+///
+/// Reads `amplitude` every 50 ms and emits `app://audio-level` until
+/// `watcher_cancel` becomes true. The event payload is an f32 in `[0,1]`.
+fn spawn_amplitude_publisher(
+    app: AppHandle,
+    amplitude: Arc<AtomicU32>,
+    watcher_cancel: Arc<AtomicBool>,
+) {
+    std::thread::Builder::new()
+        .name("audio-level".into())
+        .spawn(move || loop {
+            std::thread::sleep(Duration::from_millis(50));
+
+            if watcher_cancel.load(Ordering::Relaxed) {
+                // Notify the widget that the level is back to zero on stop.
+                let _ = app.emit("app://audio-level", 0.0_f32);
+                return;
+            }
+
+            let level = f32::from_bits(amplitude.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+            let _ = app.emit("app://audio-level", level);
+        })
+        .expect("Could not start audio level thread");
 }
 
 /// Wraps the rubato Sinc resampler state. Works in mono (single channel).

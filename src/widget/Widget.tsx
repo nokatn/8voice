@@ -15,6 +15,7 @@ type AppState =
 
 export default function Widget() {
   const [state, setState] = useState<AppState>("idle");
+  const [amplitude, setAmplitude] = useState(0);
 
   // Load initial state
   useEffect(() => {
@@ -34,13 +35,34 @@ export default function Widget() {
     (async () => {
       un = await listen<{ state: AppState; previous: AppState }>(
         "app://state-changed",
-        (e) => setState(e.payload.state),
+        (e) => {
+          setState(e.payload.state);
+          // Reset amplitude when recording stops so the wave goes flat.
+          if (e.payload.state !== "recording") {
+            setAmplitude(0);
+          }
+        },
       );
     })();
     return () => {
       un?.();
     };
   }, []);
+
+  // Listen for real-time audio level from the capture pipeline
+  useEffect(() => {
+    let un: UnlistenFn | undefined;
+    (async () => {
+      un = await listen<number>("app://audio-level", (e) => {
+        if (state === "recording") {
+          setAmplitude(e.payload);
+        }
+      });
+    })();
+    return () => {
+      un?.();
+    };
+  }, [state]);
 
   const loading = state === "transcribing" || state === "injecting";
 
@@ -80,7 +102,7 @@ export default function Widget() {
         {loading ? (
           <Spinner />
         ) : state === "recording" ? (
-          <WaveIndicator />
+          <WaveIndicator amplitude={amplitude} />
         ) : (
           <span className="whitespace-nowrap px-2 text-xs font-semibold tracking-tight text-white">
             8voice
@@ -116,18 +138,41 @@ function Spinner() {
   );
 }
 
-/** Wave indicator — animated while recording. */
-function WaveIndicator() {
+/** Wave indicator — reacts to live audio amplitude.
+ *  - amplitude = 0: flat/calm bars
+ *  - amplitude > 0: bars scale with the input level
+ */
+function WaveIndicator({ amplitude }: { amplitude: number }) {
+  const [time, setTime] = useState(0);
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      setTime((t) => t + 1);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   const bars = [0, 1, 2, 3, 4];
+  const phases = [0, 1.2, 2.1, 3.0, 4.2];
+  const factors = [0.75, 1.0, 0.85, 1.0, 0.75];
+  const base = 0.18; // calm/idle bar height fraction
+
   return (
-    <div className="flex h-5 items-center justify-center gap-[2px]">
-      {bars.map((i) => (
-        <span
-          key={i}
-          className="w-[3px] rounded-full voice-wave-sm bg-white"
-          style={{ animationDelay: `${i * 0.12}s` }}
-        />
-      ))}
+    <div className="flex h-5 items-end justify-center gap-[2px]">
+      {bars.map((i) => {
+        const wave = 0.5 + 0.5 * Math.sin(time * 0.12 + phases[i]);
+        const height = base + amplitude * (1 - base) * wave * factors[i];
+        return (
+          <span
+            key={i}
+            className="w-[3px] rounded-full bg-white transition-[height] duration-75 ease-out"
+            style={{ height: `${Math.max(base, height) * 100}%` }}
+          />
+        );
+      })}
     </div>
   );
 }
