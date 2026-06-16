@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-16
+
+### Added
+
+- First-run onboarding screen with three setup options:
+  - Download a Whisper model from HuggingFace with progress tracking.
+  - Select an existing local `.bin` / `.gguf` model file.
+  - Enter and validate a Groq API key for cloud transcription.
+- `has_completed_onboarding` setting to control first-run experience.
+
+## [0.1.0] - 2026-06-16
+
 ### Added
 
 - Privacy-first on-device voice dictation using Whisper (whisper.cpp).
@@ -22,8 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Project branding unified as **8voice** across the codebase and documentation.
-
-## [0.1.0] - 2026-06-16
 
 ### Added
 
