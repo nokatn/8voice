@@ -188,9 +188,11 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
       {/* Sidebar */}
       <aside className="flex w-64 flex-col border-r border-white/10 bg-neutral-900/50">
         <div className="p-6">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-lg ring-1 ring-white/20">
-            <span className="block h-4 w-4 rounded-full bg-neutral-900" />
-          </div>
+          <img
+            src="/logo.svg"
+            alt="8voice"
+            className="mb-4 h-12 w-12"
+          />
           <h1 className="text-lg font-bold tracking-tight">8voice</h1>
           <p className="text-xs text-neutral-400">Settings</p>
         </div>

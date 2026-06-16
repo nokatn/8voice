@@ -88,7 +88,7 @@ export default function Widget() {
         }
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white shadow-sm transition active:scale-95 focus:outline-none disabled:opacity-60"
       >
-        <span className="block h-2.5 w-2.5 rounded-full bg-neutral-900" />
+        <img src="/logo.svg" alt="" className="h-full w-full" />
       </button>
 
       {/* Right: status indicator area — drag-region.
