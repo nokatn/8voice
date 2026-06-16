@@ -157,24 +157,26 @@ function WaveIndicator({ amplitude }: { amplitude: number }) {
     return () => cancelAnimationFrame(raf);
   }, [amplitude]);
 
-  // 15 thin bars that span the full available width for a finer look.
+  // 15 thin bars that span the full available width, pulsing from the
+  // vertical center like a heartbeat rather than growing from the baseline.
   const barCount = 15;
   const bars = Array.from({ length: barCount }, (_, i) => i);
   const center = (barCount - 1) / 2;
-  const phases = bars.map((i) => Math.abs(i - center) * 0.6);
-  const factors = bars.map((i) => 1.0 - Math.abs(i - center) / center * 0.35);
-  const base = 0.12; // calm/idle bar height fraction
+  const phases = bars.map((i) => Math.abs(i - center) * 0.25);
+  const factors = bars.map((i) => 1.0 - Math.abs(i - center) / center * 0.2);
 
   return (
-    <div className="flex h-5 w-full items-end justify-center gap-[1px] px-0.5">
+    <div className="flex h-5 w-full items-center justify-center gap-[1px] overflow-hidden px-0.5">
       {bars.map((i) => {
-        const wave = 0.5 + 0.5 * Math.sin(time * 0.18 + phases[i]);
-        const height = base + smoothAmp * (1 - base) * wave * factors[i];
+        const pulse = 0.5 + 0.5 * Math.sin(time * 0.18 + phases[i]);
+        // Baseline scale is 1 (centered 6px bar). At full amplitude the bar
+        // scales vertically up to ~3.5x, expanding symmetrically up and down.
+        const scale = 1 + smoothAmp * pulse * factors[i] * 2.5;
         return (
           <span
             key={i}
-            className="flex-1 rounded-full bg-white"
-            style={{ height: `${Math.max(base, height) * 100}%` }}
+            className="flex-1 origin-center rounded-full bg-white"
+            style={{ height: "6px", transform: `scaleY(${scale})` }}
           />
         );
       })}
