@@ -53,12 +53,6 @@ pub struct Settings {
     /// Launch the app when the user logs in.
     #[serde(default = "default_launch_on_startup")]
     pub launch_on_startup: bool,
-    /// Start the app without showing any windows.
-    #[serde(default)]
-    pub start_hidden: bool,
-    /// Show the 8voice icon in the system tray.
-    #[serde(default = "default_show_tray_icon")]
-    pub show_tray_icon: bool,
 }
 
 /// VAD configuration passed to the audio layer. Derived from `Settings`.

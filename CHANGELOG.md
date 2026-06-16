@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the "Start hidden" and "Show tray icon" settings toggles. The tray icon is now always shown and the app always opens its windows on startup after onboarding.
+
 ## [0.2.19] - 2026-06-16
 
 ### Added

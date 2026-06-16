@@ -345,6 +345,42 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
             )}
           </div>
 
+          {/* Updates */}
+          <div className="mt-6 flex items-center justify-between rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
+            <div>
+              <p className="text-sm font-semibold">Updates</p>
+              <p className="text-xs text-neutral-400">
+                {checkingUpdate
+                  ? "Checking for updates…"
+                  : updateAvailable
+                    ? `Version ${updateAvailable.version} is ready to install.`
+                    : "8voice checks for updates automatically on startup."}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={checkingUpdate}
+              onClick={async () => {
+                setCheckingUpdate(true);
+                try {
+                  const info = await invoke<UpdateInfo | null>("cmd_check_update");
+                  if (info) {
+                    setUpdateAvailable(info);
+                  } else {
+                    setUpdateAvailable(null);
+                  }
+                } catch (e) {
+                  console.error("Update check failed:", e);
+                } finally {
+                  setCheckingUpdate(false);
+                }
+              }}
+              className="shrink-0 rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-neutral-200 transition hover:bg-neutral-700 hover:text-white disabled:opacity-50"
+            >
+              Check now
+            </button>
+          </div>
+
           <p className="mt-4 text-xs text-neutral-500">
             {saving ? "Saving…" : "Changes are saved automatically."}
           </p>
@@ -472,41 +508,6 @@ function GeneralTab({
             checked={settings.launch_on_startup}
             onChange={(checked) => update({ launch_on_startup: checked })}
           />
-        </div>
-
-        <div className="mt-4 flex items-center justify-between rounded-xl bg-neutral-800/50 p-4">
-          <div>
-            <p className="font-medium">Updates</p>
-            <p className="text-xs text-neutral-400">
-              {checkingUpdate
-                ? "Checking for updates…"
-                : updateAvailable
-                  ? `Version ${updateAvailable.version} is ready to install.`
-                  : "8voice checks for updates automatically on startup."}
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={checkingUpdate}
-            onClick={async () => {
-              setCheckingUpdate(true);
-              try {
-                const info = await invoke<UpdateInfo | null>("cmd_check_update");
-                if (info) {
-                  setUpdateAvailable(info);
-                } else {
-                  setUpdateAvailable(null);
-                }
-              } catch (e) {
-                console.error("Update check failed:", e);
-              } finally {
-                setCheckingUpdate(false);
-              }
-            }}
-            className="shrink-0 rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-neutral-200 transition hover:bg-neutral-700 hover:text-white disabled:opacity-50"
-          >
-            Check now
-          </button>
         </div>
       </div>
     </div>
