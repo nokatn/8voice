@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-// --- Tipler (backend ile eşleşmeli) ---
+// --- Types (must match backend) ---
 
 type AppState =
   | "idle"
@@ -11,24 +11,24 @@ type AppState =
   | "injecting"
   | "error";
 
-// --- Bileşen ---
+// --- Component ---
 
 export default function Widget() {
   const [state, setState] = useState<AppState>("idle");
 
-  // Başlangıç durumunu çek
+  // Load initial state
   useEffect(() => {
     (async () => {
       try {
         const [st] = await invoke<[AppState, string | null]>("cmd_get_state");
         setState(st);
       } catch (e) {
-        console.error("Başlangıç durumu alınamadı:", e);
+        console.error("Could not load initial state:", e);
       }
     })();
   }, []);
 
-  // State değişim olaylarını dinle (App.tsx ile aynı mekanizma)
+  // Listen for state change events (same mechanism as App.tsx)
   useEffect(() => {
     let un: UnlistenFn | undefined;
     (async () => {
@@ -45,13 +45,13 @@ export default function Widget() {
   const loading = state === "transcribing" || state === "injecting";
 
   return (
-    // Pill gövde: sürüklenebilir, köşeleri saydam pencereyle yuvarlak.
+    // Pill body: draggable, rounded corners blend with the transparent window.
     <main
       data-tauri-drag-region
       className="flex h-screen w-screen select-none items-center gap-2 overflow-hidden rounded-full bg-neutral-800/95 px-2 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_20px_-4px_rgba(255,255,255,0.15)] ring-1 ring-white/25"
     >
-      {/* Sol: logo butonu — drag-region YOK, tıklanabilir.
-          Loading sırasında disabled (kayıt zaten bitti). */}
+      {/* Left: logo button — no drag-region, clickable.
+          Disabled while loading (recording has already finished). */}
       <button
         onClick={() =>
           !loading && invoke("cmd_toggle_recording").catch(console.error)
@@ -59,19 +59,19 @@ export default function Widget() {
         disabled={loading}
         title={
           loading
-            ? "İşleniyor…"
+            ? "Processing…"
             : state === "recording"
-              ? "Kaydı durdur"
-              : "Kaydı başlat"
+              ? "Stop recording"
+              : "Start recording"
         }
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white shadow-sm transition active:scale-95 focus:outline-none disabled:opacity-60"
       >
         <span className="block h-2.5 w-2.5 rounded-full bg-neutral-900" />
       </button>
 
-      {/* Sağ: durum göstergesi alanı — drag-region.
-          - idle/error: "8voice" yazısı
-          - recording: animasyonlu dalga (konuşuyor)
+      {/* Right: status indicator area — drag-region.
+          - idle/error: "8voice" text
+          - recording: animated wave (speaking)
           - transcribing/injecting: spinner */}
       <div
         data-tauri-drag-region
@@ -91,7 +91,7 @@ export default function Widget() {
   );
 }
 
-/** Daire spinner — transcribe/inject sırasında döner. */
+/** Circular spinner — spins during transcribe/inject. */
 function Spinner() {
   return (
     <svg
@@ -116,7 +116,7 @@ function Spinner() {
   );
 }
 
-/** Dalga göstergesi — recording'de animasyonlu. */
+/** Wave indicator — animated while recording. */
 function WaveIndicator() {
   const bars = [0, 1, 2, 3, 4];
   return (
@@ -124,7 +124,7 @@ function WaveIndicator() {
       {bars.map((i) => (
         <span
           key={i}
-          className="w-[3px] rounded-full nokat-wave-sm bg-white"
+          className="w-[3px] rounded-full voice-wave-sm bg-white"
           style={{ animationDelay: `${i * 0.12}s` }}
         />
       ))}

@@ -1,9 +1,9 @@
-//! Ayar yönetimi — tauri-plugin-store (JSON) üzerinden kalıcı ayarlar.
+//! Settings management — persistent settings via tauri-plugin-store (JSON).
 //!
-//! Kontrat:
-//! - Input: get/set anahtarları
-//! - Output: tiplendirilmiş [`Settings`] veya hata
-//! - Kabul: uygulama yeniden başlansınca ayarlar korunuyor
+//! Contract:
+//! - Input: get/set keys
+//! - Output: typed [`Settings`] or error
+//! - Accept: settings persist across restarts
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -11,45 +11,48 @@ use std::sync::Arc;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
-/// Uygulama ayarları. JSON'a serileştirilir ve store'a yazılır.
+/// Application settings. Serialized to JSON and written to the store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
-    /// Seçili mikrofon cihaz adı; `None` = sistem varsayılanı.
+    /// Selected microphone device name; `None` = system default.
     #[serde(default)]
     pub input_device: Option<String>,
-    /// Whisper GGUF model dosyasının yolu (uygulama veri dizinine göre).
+    /// Path to the Whisper GGUF model file (relative to the app data dir).
     #[serde(default = "default_model_path")]
     pub model_path: String,
-    /// Transkripsiyon dili: `"tr"`, `"en"` veya `"auto"`.
+    /// Transcription language: `"tr"`, `"en"`, or `"auto"`.
     #[serde(default = "default_language")]
     pub language: String,
-    /// Global kısayol (ör. `"Ctrl+Shift+Space"`).
+    /// Global shortcut (e.g. `"Ctrl+Shift+Space"`).
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
-    /// Kısayol modu: push-to-talk veya toggle.
+    /// Shortcut mode: push-to-talk or toggle.
     #[serde(default = "default_hotkey_mode")]
     pub hotkey_mode: HotkeyMode,
-    /// Enjeksiyon modu: otomatik, her zaman yazma veya her zaman yapıştırma.
+    /// Injection mode: auto, always type, or always paste.
     #[serde(default = "default_injection_mode")]
     pub injection_mode: InjectionMode,
-    /// VAD ile otomatik durdurma açık mı (konuşma bitince kayıt dursun).
+    /// Whether VAD auto-stop is enabled (stop recording when speech ends).
     #[serde(default = "default_vad_enabled")]
     pub vad_enabled: bool,
-    /// Otomatik durdurma için gereken sürekli sessizlik süresi (ms).
+    /// Continuous silence required for auto-stop (ms).
     #[serde(default = "default_vad_silence_ms")]
     pub vad_silence_ms: u32,
-    /// VAD agresifliği: 1 = Medium, 2 = Aggressive, 3 = VeryAggressive.
+    /// VAD aggressiveness: 1 = Medium, 2 = Aggressive, 3 = VeryAggressive.
     #[serde(default = "default_vad_aggressiveness")]
     pub vad_aggressiveness: u8,
-    /// Transkripsiyon sağlayıcısı: yerel model veya Groq API.
+    /// Transcription provider: local model or Groq API.
     #[serde(default = "default_api_provider")]
     pub api_provider: ApiProvider,
-    /// Groq API anahtarı. None/empty ise API modu çalışmaz.
+    /// Groq API key. None/empty disables API mode.
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Whether the first-run onboarding has been completed.
+    #[serde(default)]
+    pub has_completed_onboarding: bool,
 }
 
-/// Audio katmanına aktarılacak VAD yapılandırması. `Settings`'ten türetilir.
+/// VAD configuration passed to the audio layer. Derived from `Settings`.
 #[derive(Debug, Clone, Copy)]
 pub struct VadCfg {
     pub enabled: bool,
@@ -58,7 +61,7 @@ pub struct VadCfg {
 }
 
 impl Settings {
-    /// VAD yapılandırmasını audio katmanı için ayıklar.
+    /// Extracts the VAD configuration for the audio layer.
     pub fn vad_cfg(&self) -> VadCfg {
         VadCfg {
             enabled: self.vad_enabled,
@@ -67,12 +70,12 @@ impl Settings {
         }
     }
 
-    /// Kritik alanları düzeltir; örn. boş kısayol yerine varsayılan atar.
+    /// Sanitizes critical fields; e.g. empty hotkey falls back to default.
     pub fn sanitize(&mut self) {
         if self.hotkey.trim().is_empty() {
             self.hotkey = default_hotkey();
         }
-        // API modunda key boşsa offline'a düşür
+        // If API mode is selected but key is empty, fall back to offline
         if self.api_provider == ApiProvider::Groq {
             if self.api_key.as_deref().unwrap_or("").trim().is_empty() {
                 self.api_provider = ApiProvider::Offline;
@@ -81,11 +84,11 @@ impl Settings {
     }
 }
 
-/// Tauri state olarak yönetilen, çalışma zamanında güncellenebilen ayarlar.
-/// `Arc<RwLock>` sayesinde komutlar ve hotkey aynı anda güvenle okur/yazar.
+/// Runtime-managed settings shared as Tauri state.
+/// The `Arc<RwLock>` lets commands and the hotkey handler read/write safely.
 pub type SharedSettings = Arc<RwLock<Settings>>;
 
-/// Yeni paylaşılan ayar sarmalayıcı oluşturur.
+/// Creates a new shared settings wrapper.
 pub fn shared(settings: Settings) -> SharedSettings {
     Arc::new(RwLock::new(settings))
 }
@@ -108,10 +111,10 @@ pub enum InjectionMode {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiProvider {
-    /// Yerel whisper.cpp modeli (ggml/bin).
+    /// Local whisper.cpp model (ggml/bin).
     #[default]
     Offline,
-    /// Groq Whisper API (cloud, API key gerekir).
+    /// Groq Whisper API (cloud, requires API key).
     Groq,
 }
 
@@ -157,6 +160,7 @@ impl Default for Settings {
             vad_aggressiveness: default_vad_aggressiveness(),
             api_provider: default_api_provider(),
             api_key: None,
+            has_completed_onboarding: false,
         }
     }
 }
@@ -164,8 +168,8 @@ impl Default for Settings {
 const STORE_FILE: &str = "settings.json";
 const STORE_KEY: &str = "settings";
 
-/// Ayarları store'dan yükler; yoksa varsayılan değerle oluşturup kaydeder.
-/// Geçersiz/boş kritik alanları varsayılan değerlerle düzeltir.
+/// Loads settings from the store; creates and saves defaults if missing.
+/// Invalid/empty critical fields are corrected to defaults.
 pub fn load(app: &AppHandle) -> anyhow::Result<Settings> {
     let store = app.store(STORE_FILE)?;
     let mut settings: Settings = store
@@ -176,7 +180,7 @@ pub fn load(app: &AppHandle) -> anyhow::Result<Settings> {
     Ok(settings)
 }
 
-/// Ayarları store'a yazar.
+/// Writes settings to the store.
 pub fn save(app: &AppHandle, settings: &Settings) -> anyhow::Result<()> {
     let store = app.store(STORE_FILE)?;
     let value = serde_json::to_value(settings)?;

@@ -1,13 +1,13 @@
-//! Metin enjeksiyonu — enigo (typing) + clipboard (paste).
+//! Text injection — enigo (typing) + clipboard (paste).
 //!
-//! Kontrat:
-//! - Input: metin, mod (Typing | Paste | Auto)
-//! - Output: Result<()> — başarı/başarısızlık
-//! - Kabul: >200 karakterde paste; Unicode bozulmuyor; macOS'ta Accessibility kontrolü
+//! Contract:
+//! - Input: text, mode (Typing | Paste | Auto)
+//! - Output: Result<()> — success/failure
+//! - Accept: paste for >200 chars; Unicode preserved; macOS Accessibility check
 //! - Cross-platform:
-//!   - Windows: enigo SendInput; elevated app'e yazamaz
-//!   - macOS: Accessibility izni şart
-//!   - Linux: X11 çalışır; Wayland'da clipboard fallback
+//!   - Windows: enigo SendInput; cannot type into elevated apps
+//!   - macOS: Accessibility permission required
+//!   - Linux: X11 works; Wayland uses clipboard fallback
 
 use anyhow::{anyhow, Result};
 use arboard::Clipboard;
@@ -15,10 +15,10 @@ use enigo::{Enigo, Key, Keyboard, Settings};
 
 use crate::settings::InjectionMode;
 
-/// Paste modu eşiği (Auto modunda).
+/// Paste-mode threshold in Auto mode.
 const PASTE_THRESHOLD: usize = 200;
 
-/// Metni odaklı pencereye enjekte eder.
+/// Injects text into the focused window.
 pub fn inject(text: &str, mode: InjectionMode) -> Result<()> {
     if text.is_empty() {
         return Ok(());
@@ -40,23 +40,23 @@ pub fn inject(text: &str, mode: InjectionMode) -> Result<()> {
     }
 }
 
-/// Yapıştırma (clipboard) modu. Pano eski içeriği saklanıp geri yüklenir.
+/// Paste (clipboard) mode. Previous clipboard content is saved and restored.
 fn inject_paste(text: &str) -> Result<()> {
     let mut clipboard =
-        Clipboard::new().map_err(|e| anyhow!("Pano erişilemedi: {e}"))?;
+        Clipboard::new().map_err(|e| anyhow!("Clipboard not accessible: {e}"))?;
 
-    // Eski panoyu sakla (metin değilse yok say)
+    // Save previous clipboard text (ignore non-text content)
     let old = clipboard.get_text().ok();
 
     clipboard
         .set_text(text)
-        .map_err(|e| anyhow!("Panoya yazılamadı: {e}"))?;
+        .map_err(|e| anyhow!("Could not write to clipboard: {e}"))?;
 
-    // Kısa süre bekle ki clipboard sistem tarafından okunsun
+    // Short wait so the OS can read the clipboard
     std::thread::sleep(std::time::Duration::from_millis(50));
 
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow!("Enigo başlatılamadı: {e}"))?;
-    // Ctrl+V (Windows/Linux) veya Cmd+V (macOS)
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow!("Could not initialize Enigo: {e}"))?;
+    // Ctrl+V (Windows/Linux) or Cmd+V (macOS)
     #[cfg(target_os = "macos")]
     let modifier = Key::Super;
     #[cfg(not(target_os = "macos"))]
@@ -65,7 +65,7 @@ fn inject_paste(text: &str) -> Result<()> {
     enigo.key(Key::Unicode('v'), enigo::Direction::Click)?;
     enigo.key(modifier, enigo::Direction::Release)?;
 
-    // Panoyu geri yükle (yapıştırma tamamlandıktan sonra)
+    // Restore previous clipboard content after paste completes
     std::thread::sleep(std::time::Duration::from_millis(150));
     if let Some(prev) = old {
         let _ = clipboard.set_text(prev);
@@ -73,21 +73,21 @@ fn inject_paste(text: &str) -> Result<()> {
     Ok(())
 }
 
-/// Tuş simülasyonu (typing) modu.
+/// Key simulation (typing) mode.
 fn inject_typing(text: &str) -> Result<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow!("Enigo başlatılamadı: {e}"))?;
-    enigo.text(text).map_err(|e| anyhow!("Yazma hatası: {e}"))?;
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow!("Could not initialize Enigo: {e}"))?;
+    enigo.text(text).map_err(|e| anyhow!("Typing error: {e}"))?;
     Ok(())
 }
 
-/// macOS Accessibility izni kontrolü ve kullanıcı yönlendirmesi.
+/// macOS Accessibility permission check and user guidance.
 #[cfg(target_os = "macos")]
 fn check_accessibility_permission() -> Result<()> {
     use std::process::Command;
-    // Basit yaklaşım: enigo'nun kendi kontrolüne güven; izin yoksa yazma başarısız olur.
-    // Daha sağlam: ApplicationServices API ile sorgu. MVP'de uyarı mesajı veriyoruz.
+    // Simple approach: rely on enigo's own check; without permission typing fails.
+    // More robust: query via ApplicationServices API. In the MVP we just show a warning.
     let ok: bool = {
-        // AXIsProcessTrustedWithOptions ile trusted mı?
+        // Is UI elements enabled (trusted)?
         let script = "tell application \"System Events\" to UI elements enabled";
         Command::new("osascript")
             .arg("-e")
@@ -98,7 +98,7 @@ fn check_accessibility_permission() -> Result<()> {
     };
     if !ok {
         return Err(anyhow!(
-            "macOS Accessibility izni gerekli. System Settings → Privacy & Security → Accessibility → 8voice'u etkinleştirin."
+            "macOS Accessibility permission required. Enable 8voice in System Settings → Privacy & Security → Accessibility."
         ));
     }
     Ok(())

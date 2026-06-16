@@ -1,10 +1,11 @@
-//! 8voice — gizlilik öncelikli, on-device sesli dikte.
+//! 8voice — privacy-first, on-device voice dictation.
 //!
-//! Modüller: audio, transcribe, inject, hotkey, state, settings.
+//! Modules: audio, transcribe, inject, hotkey, state, settings.
 
 mod audio;
 mod hotkey;
 mod inject;
+mod onboarding;
 mod settings;
 mod state;
 mod transcribe;
@@ -19,7 +20,7 @@ use tauri::{
     AppHandle, Emitter, Manager, WindowEvent,
 };
 
-/// Global paylaşılan uygulama durumu.
+/// Globally shared application state.
 pub struct AppCtx {
     pub audio: audio::AudioCapture,
     pub audio_buf: audio::SharedBuffer,
@@ -50,27 +51,28 @@ pub fn run() {
                 audio_buf: buf,
             });
 
-            // --- Ayarlar (önce varsayılan, bootstrap günceller) ---
+            // --- Settings (defaults first, bootstrap updates them) ---
             app.manage(settings::shared(Settings::default()));
+            app.manage(onboarding::DownloadController::new());
 
-            // --- Widget penceresi: köşeleri gerçekten saydam yap ---
+            // --- Widget window: make corners truly transparent ---
             make_widget_transparent(app.handle());
 
             // --- Tray ---
             setup_tray(app.handle())?;
 
-            // --- Ayarları yükle + kısayol kaydet + model preload ---
+            // --- Load settings + register shortcut + preload model ---
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = bootstrap(&handle) {
-                    tracing::error!("Bootstrap hatası: {e:#}");
+                    tracing::error!("Bootstrap error: {e:#}");
                 }
             });
 
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Pencere kapatınca gizle (tray'de yaşatır) — hem main hem widget.
+            // Hide on close (keeps alive in tray) — both main and widget.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 match window.label() {
                     "main" | "widget" => {
@@ -91,31 +93,60 @@ pub fn run() {
             cmd_toggle_recording,
             cmd_toggle_widget,
             cmd_open_settings,
+            onboarding::cmd_list_whisper_models,
+            onboarding::cmd_download_whisper_model,
+            onboarding::cmd_cancel_download,
+            onboarding::cmd_validate_local_model,
+            onboarding::cmd_validate_groq_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
-/// Widget penceresinin WebView2 arka planını tam saydam yapar.
-/// Bu, Windows'ta köşelerin masaüstü rengi yerine gerçekten saydam
-/// görünmesini sağlar. `rounded-full` pill gövdesi pencerenin dörtgen
-/// köşelerini taşır; köşelerde WebView2'nin varsayılan opak beyaz arka
-/// planı görülmemesi için bunu açıkça (0,0,0,0) yapmalıyız.
+/// Makes the widget window's background fully transparent and removes the
+/// faint gray "half-rectangle" artifacts at the corners.
+///
+/// Two things are needed on Windows:
+/// 1. Set WebView2's `DefaultBackgroundColor` to fully transparent (A=0) so the
+///    WebView itself does not paint an opaque background outside the pill shape.
+/// 2. Tell DWM **not** to round the window corners. Windows 11 rounds every
+///    top-level window (~8px) even when it is transparent/undecorated; that
+///    rounded corner clipping paints a faint gray sliver around the widget's
+///    own `rounded-full` pill, which reads as the white/gray "half-rectangles".
+///    `DWMWCP_DONOTROUND` keeps the OS window a clean sharp rectangle, so the
+///    only thing visible is the pill itself.
 #[cfg(windows)]
 fn make_widget_transparent(app: &AppHandle) {
   use tauri::Manager;
   use windows_core::Interface;
+  use windows::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+  };
   use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2Controller2, COREWEBVIEW2_COLOR,
   };
 
   if let Some(widget) = app.get_webview_window("widget") {
+    // (2) Disable DWM corner rounding for this window — removes the gray corners.
+    if let Ok(hwnd) = widget.hwnd() {
+      let _ = unsafe {
+        let preference = DWMWCP_DONOTROUND.0 as i32;
+        DwmSetWindowAttribute(
+          hwnd,
+          DWMWA_WINDOW_CORNER_PREFERENCE,
+          &preference as *const _ as *const _,
+          std::mem::size_of::<i32>() as u32,
+        )
+      };
+    }
+
+    // (1) Make the WebView2 background transparent.
     let _ = widget.with_webview(|webview| unsafe {
       let controller = webview.controller();
       match controller.cast::<ICoreWebView2Controller2>() {
         Ok(controller2) => {
-          // A=0 → tam saydam. Önceki sürüm yanlışlıkla getter
-          // (DefaultBackgroundColor) çağırıyordu; setter kullanmalıyız.
+          // A=0 → fully transparent. An earlier version mistakenly called
+          // the getter (DefaultBackgroundColor); we must use the setter.
           let color = COREWEBVIEW2_COLOR {
             A: 0,
             R: 0,
@@ -123,49 +154,58 @@ fn make_widget_transparent(app: &AppHandle) {
             B: 0,
           };
           match controller2.SetDefaultBackgroundColor(color) {
-            Ok(_) => tracing::debug!("Widget WebView2 arka plani saydam yapildi"),
-            Err(e) => tracing::warn!("DefaultBackgroundColor ayarlanamadi: {e}"),
+            Ok(_) => tracing::debug!("Widget WebView2 background made transparent"),
+            Err(e) => tracing::warn!("Could not set DefaultBackgroundColor: {e}"),
           }
         }
-        Err(e) => tracing::warn!("ICoreWebView2Controller2 cast edilemedi: {e}"),
+        Err(e) => tracing::warn!("Could not cast to ICoreWebView2Controller2: {e}"),
       }
     });
   } else {
-    tracing::warn!("Widget penceresi setup sirasinda bulunamadi");
+    tracing::warn!("Widget window not found during setup");
   }
 }
 
 #[cfg(not(windows))]
 fn make_widget_transparent(_app: &AppHandle) {}
 
-/// Başlangıç: ayarları yükle, kısayolu kaydet, modeli preload et.
+/// Startup: load settings, register shortcut, preload model.
 fn bootstrap(app: &AppHandle) -> tauri::Result<()> {
     let loaded = settings::load(app).unwrap_or_else(|e| {
-        tracing::warn!("Ayarlar yüklenemedi, varsayılan: {e}");
+        tracing::warn!("Could not load settings, using defaults: {e}");
         Settings::default()
     });
 
-    // Shared state'i güncelle
+    // Update shared state
     {
         let shared = app.state::<SharedSettings>();
         *shared.write() = loaded.clone();
     }
 
-    // Kısayol
+    // Shortcut
     if let Err(e) = hotkey::register(app, &loaded.hotkey, loaded.hotkey_mode) {
-        tracing::warn!("Kısayol kaydedilemedi: {e:#}");
+        tracing::warn!("Could not register shortcut: {e:#}");
     }
 
-    // Model preload (yol geçerliyse) — yalnızca offline modda gerekli
+    // If first run, show the main window for onboarding and hide the widget
+    // so the setup screen is not covered by the floating mic.
+    if !loaded.has_completed_onboarding {
+        if let Some(widget) = app.get_webview_window("widget") {
+            let _ = widget.hide();
+        }
+        open_settings(app);
+    }
+
+    // Model preload (if path is valid) — only needed in offline mode
     if loaded.api_provider == ApiProvider::Offline {
         let model_path = resolve_model_path(app, &loaded.model_path);
         if model_path.exists() {
             if let Err(e) = transcribe::Transcriber::load(&model_path) {
-                tracing::warn!("Model preload başarısız: {e:#}");
+                tracing::warn!("Model preload failed: {e:#}");
             }
         } else {
             tracing::warn!(
-                "Model bulunamadı ({}); ayarlar ekranında uyarı gösterilecek",
+                "Model not found ({}); a warning will be shown in settings",
                 model_path.display()
             );
         }
@@ -174,23 +214,23 @@ fn bootstrap(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Model yolunu uygulama kaynak dizinine göre çözümler.
+/// Resolves the model path relative to the application resource directory.
 fn resolve_model_path(app: &AppHandle, stored: &str) -> std::path::PathBuf {
     let p = std::path::PathBuf::from(stored);
     if p.is_absolute() {
         return p;
     }
-    // src-tauri/models/... → resource_dir altında olabilir; önce app_local_data dene
+    // src-tauri/models/... may be under resource_dir; try app_local_data first
     if let Ok(dir) = app.path().app_local_data_dir() {
         let candidate = dir.join(stored);
         if candidate.exists() {
             return candidate;
         }
     }
-    // Geliştirme sırasında src-tauri/models/...
+    // During development: src-tauri/models/...
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            // target/debug veya target/release → src-tauri/models
+            // target/debug or target/release → src-tauri/models
             for ancestor in parent.ancestors().take(4) {
                 let candidate = ancestor.join(stored);
                 if candidate.exists() {
@@ -199,24 +239,24 @@ fn resolve_model_path(app: &AppHandle, stored: &str) -> std::path::PathBuf {
             }
         }
     }
-    // Son çare: çalışma dizinine göre
+    // Fallback: relative to working directory
     std::path::PathBuf::from(stored)
 }
 
-/// Tray ikonu + menü kurulumu.
+/// Tray icon + menu setup.
 ///
-/// Sadeleştirilmiş menü (Faz 3A): "Widget'ı göster/gizle", "Ayarlar...",
-/// ayraç, "Çıkış". Sol tık widget'ı toggle eder.
+/// Simplified menu: "Show/hide widget", "Settings...", separator, "Quit".
+/// Left click toggles the widget.
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
-    let widget = MenuItem::with_id(app, "widget", "Widget'ı göster/gizle", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "Ayarlar...", true, None::<&str>)?;
+    let widget = MenuItem::with_id(app, "widget", "Show/hide widget", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Çıkış", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&widget, &settings, &sep, &quit])?;
 
     let _tray = TrayIconBuilder::with_id("main")
         .icon(tray::idle_icon())
-        .tooltip("8voice — Hazır")
+        .tooltip("8voice — Ready")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -232,7 +272,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            // Sol tık → widget'ı göster/gizle
+            // Left click → toggle widget
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
@@ -247,7 +287,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Widget penceresini gösterir/gizler (toggle).
+/// Shows/hides the widget window (toggle).
 fn toggle_widget(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("widget") {
         match w.is_visible() {
@@ -262,7 +302,7 @@ fn toggle_widget(app: &AppHandle) {
     }
 }
 
-/// Ayarlar penceresini açar (yoksa görünür yap, varsa odakla).
+/// Opens the settings window (shows it if hidden, focuses if visible).
 fn open_settings(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
@@ -270,8 +310,8 @@ fn open_settings(app: &AppHandle) {
     }
 }
 
-/// Kayıt durunca: transcribe → inject zincirini çalıştırır.
-/// hotkey.rs (push-to-talk release / toggle) ve cmd_stop_recording tarafından çağrılır.
+/// Runs the transcribe → inject chain when recording stops.
+/// Called by hotkey.rs (PTT release / toggle) and cmd_stop_recording.
 pub fn run_pipeline(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -279,10 +319,10 @@ pub fn run_pipeline(app: &AppHandle) {
         let sm = app.state::<StateMachine>();
         let shared = app.state::<SharedSettings>();
 
-        // 1) PCM al
+        // 1) Get PCM
         let pcm = audio::AudioCapture::drain(&ctx.audio_buf);
 
-        // 2) Transcribe (dil + sağlayıcı ayarları kopyalanır)
+        // 2) Transcribe (copy language + provider settings)
         let (language, injection_mode, provider, api_key) = {
             let s = shared.read();
             (
@@ -298,21 +338,21 @@ pub fn run_pipeline(app: &AppHandle) {
                     match transcribe::transcribe_groq(&pcm, &language, &key).await {
                         Ok(t) => t,
                         Err(e) => {
-                            tracing::error!("Groq transkripsiyon hatası: {e:#}");
+                            tracing::error!("Groq transcription error: {e:#}");
                             sm.transition(
                                 &app,
-                                StateEvent::Fail(format!("Groq transkripsiyon: {e}")),
+                                StateEvent::Fail(format!("Groq transcription: {e}")),
                             );
                             return;
                         }
                     }
                 }
                 _ => {
-                    tracing::error!("Groq sağlayıcısı seçili ama API key boş");
+                    tracing::error!("Groq provider selected but API key is empty");
                     sm.transition(
                         &app,
                         StateEvent::Fail(
-                            "Groq API anahtarı eksik. Ayarlar'dan ekleyin.".into(),
+                            "Groq API key missing. Add it in Settings.".into(),
                         ),
                     );
                     return;
@@ -321,14 +361,14 @@ pub fn run_pipeline(app: &AppHandle) {
             ApiProvider::Offline => match transcribe::Transcriber::transcribe(&pcm, &language) {
                 Ok(t) => t,
                 Err(e) => {
-                    tracing::error!("Transcribe hatası: {e:#}");
-                    sm.transition(&app, StateEvent::Fail(format!("Transkripsiyon: {e}")));
+                    tracing::error!("Transcription error: {e:#}");
+                    sm.transition(&app, StateEvent::Fail(format!("Transcription: {e}")));
                     return;
                 }
             },
         };
         if text.is_empty() {
-            tracing::info!("Boş transkript; enjeksiyon atlandı");
+            tracing::info!("Empty transcript; injection skipped");
             sm.transition(&app, StateEvent::TranscriptionDone);
             sm.transition(&app, StateEvent::InjectionDone);
             return;
@@ -338,8 +378,8 @@ pub fn run_pipeline(app: &AppHandle) {
 
         // 3) Inject
         if let Err(e) = inject::inject(&text, injection_mode) {
-            tracing::error!("Enjeksiyon hatası: {e:#}");
-            sm.transition(&app, StateEvent::Fail(format!("Enjeksiyon: {e}")));
+            tracing::error!("Injection error: {e:#}");
+            sm.transition(&app, StateEvent::Fail(format!("Injection: {e}")));
             return;
         }
         sm.transition(&app, StateEvent::InjectionDone);
@@ -348,11 +388,11 @@ pub fn run_pipeline(app: &AppHandle) {
     });
 }
 
-/// Kaydı durdurur ve transcribe→inject zincirini tetikler.
+/// Stops recording and triggers the transcribe→inject chain.
 ///
-/// Tek orchustrasyon noktası: kısayol (PTT release / toggle), manuel
-/// "Durdur" butonu ve VAD watcher hep bunu çağırır. İdempotent — zaten
-/// kayıt yapılmıyorsa (state Recording değilse) güvenli no-op.
+/// Single orchestration point: shortcut (PTT release / toggle), manual
+/// "Stop" button, and the VAD watcher all call this. Idempotent — safe no-op
+/// if not currently recording (state != Recording).
 pub fn stop_recording(app: &AppHandle) {
     let ctx = app.state::<AppCtx>();
     let sm = app.state::<StateMachine>();
@@ -367,10 +407,9 @@ pub fn stop_recording(app: &AppHandle) {
     run_pipeline(app);
 }
 
-/// Kaydı başlatır (kısayol + komut tarafından ortak kullanılır).
-/// VAD ayarı settings'ten okunur; toggle modunda VAD aktifse otomatik
-/// durdurma devreye girer. PTT'de release manuel stop olduğu için VAD
-/// yine de çalışabilir ama release önceliklidir.
+/// Starts recording (shared by shortcut and command).
+/// VAD setting is read from settings; in toggle mode VAD can auto-stop.
+/// In PTT mode release is the manual stop, but VAD still runs (release takes priority).
 pub fn start_recording(app: &AppHandle) -> Result<(), String> {
     let sm = app.state::<StateMachine>();
     let ctx = app.state::<AppCtx>();
@@ -384,13 +423,13 @@ pub fn start_recording(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     if !sm.transition(app, StateEvent::StartRecording) {
         ctx.audio.stop();
-        return Err("Şu anda kayıt başlatılamaz (meşgul)".into());
+        return Err("Cannot start recording right now (busy)".into());
     }
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Tauri komutları (frontend ↔ backend)
+// Tauri commands (frontend ↔ backend)
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
@@ -405,27 +444,35 @@ fn cmd_get_settings(shared: tauri::State<'_, SharedSettings>) -> Settings {
 
 #[tauri::command]
 fn cmd_save_settings(app: AppHandle, mut settings: Settings) -> Result<(), String> {
-    // Geçersiz alanları düzelt
+    // Fix invalid fields
     settings.sanitize();
 
-    // Kaydet
+    // Save
     settings::save(&app, &settings).map_err(|e| e.to_string())?;
-    // Shared state'i güncelle
+    // Update shared state
     {
         let shared = app.state::<SharedSettings>();
         *shared.write() = settings.clone();
     }
-    // Kısayolu yeniden kaydet
+    // Re-register shortcut
     if let Err(e) = hotkey::register(&app, &settings.hotkey, settings.hotkey_mode) {
-        tracing::warn!("Kısayol yeniden kaydedilemedi: {e:#}");
+        tracing::warn!("Could not re-register shortcut: {e:#}");
     }
-    // Model yolu değiştiyse ve offline moddaysa yeniden yükle
+    // Reload model if path changed and in offline mode
     if settings.api_provider == ApiProvider::Offline {
         let path = resolve_model_path(&app, &settings.model_path);
         if path.exists() {
             let _ = transcribe::Transcriber::load(&path);
         }
     }
+
+    // Once onboarding is complete, make sure the recording widget is visible.
+    if settings.has_completed_onboarding {
+        if let Some(widget) = app.get_webview_window("widget") {
+            let _ = widget.show();
+        }
+    }
+
     Ok(())
 }
 
@@ -445,8 +492,8 @@ fn cmd_stop_recording(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Kayıt durumuna göre başlat/durdur — widget'ın mikrofon butonu bunu çağırır.
-/// Idle ise başlatır, Recording ise durdurur, diğer meşgul durumlarında no-op.
+/// Starts/stops based on recording state — called by the widget microphone button.
+/// Starts if Idle, stops if Recording, no-op for other busy states.
 #[tauri::command]
 fn cmd_toggle_recording(app: AppHandle) -> Result<(), String> {
     let sm = app.state::<StateMachine>();
@@ -456,19 +503,19 @@ fn cmd_toggle_recording(app: AppHandle) -> Result<(), String> {
             stop_recording(&app);
             Ok(())
         }
-        // Transcribing/Injecting/Error → kullanıcı beklemeli
+        // Transcribing/Injecting/Error → user must wait
         _ => Ok(()),
     }
 }
 
-/// Widget penceresini göster/gizle (frontend'den çağrılabilir).
+/// Show/hide widget window (callable from frontend).
 #[tauri::command]
 fn cmd_toggle_widget(app: AppHandle) -> Result<(), String> {
     toggle_widget(&app);
     Ok(())
 }
 
-/// Ayarlar penceresini aç (frontend'den çağrılabilir).
+/// Open settings window (callable from frontend).
 #[tauri::command]
 fn cmd_open_settings(app: AppHandle) -> Result<(), String> {
     open_settings(&app);

@@ -1,12 +1,12 @@
-//! Global kısayol — tauri-plugin-global-shortcut.
+//! Global shortcut — tauri-plugin-global-shortcut.
 //!
-//! Kontrat:
-//! - Input: kısayol kombinasyonu, mod (PushToTalk | Toggle)
-//! - Output: StartRecording / StopRecording olayları → state machine
-//! - Kabul: arka planda çalışıyor; ayar değişince re-register; çakışmada net hata
+//! Contract:
+//! - Input: shortcut combination, mode (PushToTalk | Toggle)
+//! - Output: StartRecording / StopRecording events → state machine
+//! - Accept: works in the background; re-register when settings change; clear error on conflict
 //!
-//! Not: Push-to-talk için hem Pressed hem Released olayları gerekir.
-//! Toggle modunda sadece Pressed sayılır.
+//! Note: Push-to-talk needs both Pressed and Released events.
+//! In Toggle mode only Pressed matters.
 
 use anyhow::{anyhow, Result};
 use tauri::{AppHandle, Manager};
@@ -15,14 +15,14 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use crate::settings::HotkeyMode;
 use crate::state::{AppState, StateMachine};
 
-/// Kısayolu kaydeder. Önce eskileri temizler.
+/// Registers the shortcut. Unregisters any previous shortcuts first.
 pub fn register(app: &AppHandle, hotkey: &str, mode: HotkeyMode) -> Result<()> {
     let manager = app.global_shortcut();
     manager.unregister_all()?;
 
     let shortcut: Shortcut = hotkey
         .parse()
-        .map_err(|e| anyhow!("Geçersiz kısayol '{hotkey}': {e}"))?;
+        .map_err(|e| anyhow!("Invalid shortcut '{hotkey}': {e}"))?;
 
     manager.on_shortcut(shortcut, move |app, _shortcut, event| {
         let pressed = event.state == ShortcutState::Pressed;
@@ -40,8 +40,8 @@ pub fn register(app: &AppHandle, hotkey: &str, mode: HotkeyMode) -> Result<()> {
             }
             HotkeyMode::Toggle => {
                 if pressed {
-                    // Mevcut duruma göre start/stop kararını stop_recording /
-                    // start_recording helper'ları idempotent biçimde ele alır.
+                    // Let idempotent start_recording / stop_recording helpers
+                    // decide based on the current state.
                     match app.state::<StateMachine>().current() {
                         AppState::Idle => (true, false),
                         AppState::Recording => (false, true),
@@ -55,20 +55,20 @@ pub fn register(app: &AppHandle, hotkey: &str, mode: HotkeyMode) -> Result<()> {
 
         if do_start {
             if let Err(e) = crate::start_recording(app) {
-                tracing::warn!("Kayıt başlatılamadı: {e}");
+                tracing::warn!("Could not start recording: {e}");
             }
         }
         if do_stop {
-            // stop_recording idempotent: VAD veya manuel kapatma fark etmez.
+            // stop_recording is idempotent: works regardless of VAD or manual stop.
             crate::stop_recording(app);
         }
     })?;
 
-    tracing::info!("Kısayol kaydedildi: {hotkey} (mod: {mode:?})");
+    tracing::info!("Shortcut registered: {hotkey} (mode: {mode:?})");
     Ok(())
 }
 
-/// Tüm kısayolları kaldırır.
+/// Unregisters all shortcuts.
 pub fn unregister_all(app: &AppHandle) -> Result<()> {
     app.global_shortcut().unregister_all()?;
     Ok(())

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import type { Settings } from "./types";
 
-// --- Tipler (backend ile eşleşmeli) ---
+// --- Types (must match backend) ---
 
 type AppState =
   | "idle"
@@ -11,20 +12,6 @@ type AppState =
   | "transcribing"
   | "injecting"
   | "error";
-
-interface Settings {
-  input_device: string | null;
-  model_path: string;
-  language: string;
-  hotkey: string;
-  hotkey_mode: "push_to_talk" | "toggle";
-  injection_mode: "auto" | "typing" | "paste";
-  vad_enabled: boolean;
-  vad_silence_ms: number;
-  vad_aggressiveness: number;
-  api_provider: "offline" | "groq";
-  api_key: string | null;
-}
 
 const DEFAULT_SETTINGS: Settings = {
   input_device: null,
@@ -38,6 +25,7 @@ const DEFAULT_SETTINGS: Settings = {
   vad_aggressiveness: 2,
   api_provider: "offline",
   api_key: null,
+  has_completed_onboarding: false,
 };
 
 const STATE_META: Record<
@@ -52,40 +40,40 @@ const STATE_META: Record<
   }
 > = {
   idle: {
-    label: "Hazır",
-    description: "Kayda başlamak için widget mikrofonu veya kısayol kullan.",
+    label: "Ready",
+    description: "Use the widget mic or shortcut to start recording.",
     bars: "bg-emerald-500",
     ring: "ring-emerald-500/20",
     glow: "shadow-emerald-500/10",
     animate: false,
   },
   recording: {
-    label: "Kayıt yapılıyor",
-    description: "Konuşmanız dinleniyor…",
+    label: "Recording",
+    description: "Listening to your speech…",
     bars: "bg-red-500",
     ring: "ring-red-500/20",
     glow: "shadow-red-500/10",
     animate: true,
   },
   transcribing: {
-    label: "Metne çevriliyor",
-    description: "Ses kaydı yazıya dönüştürülüyor…",
+    label: "Transcribing",
+    description: "Converting speech to text…",
     bars: "bg-amber-500",
     ring: "ring-amber-500/20",
     glow: "shadow-amber-500/10",
     animate: true,
   },
   injecting: {
-    label: "Yazılıyor",
-    description: "Metin aktif pencereye aktarılıyor…",
+    label: "Injecting",
+    description: "Sending text to the active window…",
     bars: "bg-cyan-500",
     ring: "ring-cyan-500/20",
     glow: "shadow-cyan-500/10",
     animate: true,
   },
   error: {
-    label: "Hata",
-    description: "Bir sorun oluştu.",
+    label: "Error",
+    description: "Something went wrong.",
     bars: "bg-rose-500",
     ring: "ring-rose-500/20",
     glow: "shadow-rose-500/10",
@@ -93,12 +81,14 @@ const STATE_META: Record<
   },
 };
 
-// --- Bileşen ---
+// --- Component ---
 
-function App() {
+function App({ initialSettings }: { initialSettings?: Settings }) {
   const [state, setState] = useState<AppState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<Settings>(
+    initialSettings ?? DEFAULT_SETTINGS,
+  );
   const [devices, setDevices] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
@@ -118,7 +108,7 @@ function App() {
         setError(st[1]);
         setDevices(devs);
       } catch (e) {
-        console.error("Başlangıç verisi alınamadı:", e);
+        console.error("Could not load initial data:", e);
       }
     })();
   }, []);
@@ -148,7 +138,7 @@ function App() {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch (e) {
-      console.error("Panoya kopyalanamadı:", e);
+      console.error("Could not copy to clipboard:", e);
     }
   };
 
@@ -158,7 +148,7 @@ function App() {
       setSaving(true);
       invoke("cmd_save_settings", { settings: next })
         .catch((e) => {
-          console.error("Ayar kaydedilemedi:", e);
+          console.error("Could not save settings:", e);
           setError(String(e));
         })
         .finally(() => setSaving(false));
@@ -178,11 +168,11 @@ function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight">8voice</h1>
-            <p className="text-sm text-neutral-400">Yerel model veya Groq API ile sesli dikte</p>
+            <p className="text-sm text-neutral-400">Voice dictation with local model or Groq API</p>
           </div>
         </header>
 
-        {/* Durum kartı */}
+        {/* Status card */}
         <section
           className={`mb-5 flex items-center gap-4 rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5 ${meta.glow}`}
         >
@@ -202,12 +192,12 @@ function App() {
           </span>
         </section>
 
-        {/* Son transkript */}
+        {/* Last transcript */}
         {lastTranscript && (
           <section className="mb-5 rounded-2xl border border-neutral-800/60 bg-neutral-900/60 p-4 backdrop-blur-sm">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                Son transkript
+                Last transcript
               </p>
               <button
                 type="button"
@@ -217,12 +207,12 @@ function App() {
                 {copied ? (
                   <>
                     <CheckIcon className="h-3 w-3" />
-                    Kopyalandı
+                    Copied
                   </>
                 ) : (
                   <>
                     <CopyIcon className="h-3 w-3" />
-                    Kopyala
+                    Copy
                   </>
                 )}
               </button>
@@ -233,19 +223,19 @@ function App() {
           </section>
         )}
 
-        {/* Ayarlar */}
+        {/* Settings */}
         <section className="mb-5 rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
           <div className="mb-5 flex items-center gap-2">
             <SettingsIcon className="h-4 w-4 text-neutral-400" />
             <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
-              Ayarlar
+              Settings
             </h2>
           </div>
 
           <div className="flex flex-col gap-5">
-            <Field label="Mikrofon" icon={<MicIcon className="h-3.5 w-3.5" />}>
+            <Field label="Microphone" icon={<MicIcon className="h-3.5 w-3.5" />}>
               <select
-                className="nokat-input"
+                className="voice-input"
                 value={settings.input_device ?? ""}
                 onChange={(e) =>
                   update({
@@ -253,7 +243,7 @@ function App() {
                   })
                 }
               >
-                <option value="">Sistem varsayılanı</option>
+                <option value="">System default</option>
                 {devices.map((d) => (
                   <option key={d} value={d}>
                     {d}
@@ -263,11 +253,11 @@ function App() {
             </Field>
 
             <Field
-              label="Transkripsiyon sağlayıcısı"
+              label="Transcription provider"
               icon={<CloudIcon className="h-3.5 w-3.5" />}
             >
               <select
-                className="nokat-input"
+                className="voice-input"
                 value={settings.api_provider}
                 onChange={(e) =>
                   update({
@@ -275,16 +265,16 @@ function App() {
                   })
                 }
               >
-                <option value="offline">Yerel model (offline)</option>
+                <option value="offline">Local model (offline)</option>
                 <option value="groq">Groq Whisper API</option>
               </select>
             </Field>
 
             {settings.api_provider === "offline" ? (
-              <Field label="Model yolu" icon={<FileIcon className="h-3.5 w-3.5" />}>
+              <Field label="Model path" icon={<FileIcon className="h-3.5 w-3.5" />}>
                 <div className="flex gap-2">
                   <input
-                    className="nokat-input font-mono text-xs"
+                    className="voice-input font-mono text-xs"
                     value={settings.model_path}
                     onChange={(e) => update({ model_path: e.target.value })}
                     placeholder="models/ggml-small.bin"
@@ -298,28 +288,28 @@ function App() {
                           directory: false,
                           filters: [
                             { name: "GGML/Whisper model", extensions: ["bin"] },
-                            { name: "Tüm dosyalar", extensions: ["*"] },
+                            { name: "All files", extensions: ["*"] },
                           ],
-                          title: "Whisper model dosyası seç",
+                          title: "Choose Whisper model file",
                         });
                         if (selected && typeof selected === "string") {
                           update({ model_path: selected });
                         }
                       } catch (e) {
-                        console.error("Model seçilemedi:", e);
+                        console.error("Could not select model:", e);
                       }
                     }}
                     className="shrink-0 rounded-lg bg-neutral-800 px-3 text-xs font-semibold text-neutral-200 transition hover:bg-neutral-700 hover:text-white"
                   >
-                    Gözat
+                    Browse
                   </button>
                 </div>
               </Field>
             ) : (
-              <Field label="Groq API anahtarı" icon={<KeyIcon className="h-3.5 w-3.5" />}>
+              <Field label="Groq API key" icon={<KeyIcon className="h-3.5 w-3.5" />}>
                 <input
                   type="password"
-                  className="nokat-input font-mono text-xs"
+                  className="voice-input font-mono text-xs"
                   value={settings.api_key ?? ""}
                   onChange={(e) =>
                     update({ api_key: e.target.value || null })
@@ -329,22 +319,22 @@ function App() {
               </Field>
             )}
 
-            <Field label="Dil" icon={<GlobeIcon className="h-3.5 w-3.5" />}>
+            <Field label="Language" icon={<GlobeIcon className="h-3.5 w-3.5" />}>
               <select
-                className="nokat-input"
+                className="voice-input"
                 value={settings.language}
                 onChange={(e) => update({ language: e.target.value })}
               >
-                <option value="auto">Otomatik</option>
-                <option value="tr">Türkçe</option>
+                <option value="auto">Auto</option>
+                <option value="tr">Turkish</option>
                 <option value="en">English</option>
               </select>
             </Field>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Kısayol modu">
+              <Field label="Shortcut mode">
                 <select
-                  className="nokat-input"
+                  className="voice-input"
                   value={settings.hotkey_mode}
                   onChange={(e) =>
                     update({
@@ -352,12 +342,12 @@ function App() {
                     })
                   }
                 >
-                  <option value="push_to_talk">Basılı tut</option>
-                  <option value="toggle">Aç/kapa</option>
+                  <option value="push_to_talk">Hold to talk</option>
+                  <option value="toggle">Toggle</option>
                 </select>
               </Field>
 
-              <Field label="Kısayol">
+              <Field label="Shortcut">
                 <HotkeyCapture
                   value={settings.hotkey}
                   capturing={capturingHotkey}
@@ -371,9 +361,9 @@ function App() {
               </Field>
             </div>
 
-            <Field label="Enjeksiyon modu" icon={<TypeIcon className="h-3.5 w-3.5" />}>
+            <Field label="Injection mode" icon={<TypeIcon className="h-3.5 w-3.5" />}>
               <select
-                className="nokat-input"
+                className="voice-input"
                 value={settings.injection_mode}
                 onChange={(e) =>
                   update({
@@ -382,25 +372,25 @@ function App() {
                   })
                 }
               >
-                <option value="auto">Otomatik (uzun metinde yapıştır)</option>
-                <option value="typing">Her zaman yazma</option>
-                <option value="paste">Her zaman yapıştır</option>
+                <option value="auto">Auto (paste long text)</option>
+                <option value="typing">Always type</option>
+                <option value="paste">Always paste</option>
               </select>
             </Field>
           </div>
 
           <p className="mt-5 text-xs text-neutral-500">
-            {saving ? "Kaydediliyor…" : "Değişiklikler otomatik kaydedilir."}
+            {saving ? "Saving…" : "Changes are saved automatically."}
           </p>
         </section>
 
-        {/* Otomatik durdurma (VAD) */}
+        {/* Auto stop (VAD) */}
         <section className="rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
           <div className="mb-5 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <StopwatchIcon className="h-4 w-4 text-neutral-400" />
               <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
-                Otomatik durdurma
+                Auto stop
               </h2>
             </div>
             <label className="relative inline-flex cursor-pointer items-center">
@@ -417,13 +407,13 @@ function App() {
           {settings.vad_enabled ? (
             <div className="flex flex-col gap-5">
               <p className="text-sm text-neutral-400">
-                Konuşmayı kestikten sonra{" "}
+                Recording stops automatically after{" "}
                 <span className="font-semibold text-neutral-200">
                   {settings.vad_silence_ms} ms
                 </span>{" "}
-                sessizlikte kayıt otomatik durur.
+                of silence once you stop speaking.
               </p>
-              <Field label={`Sessizlik eşiği: ${settings.vad_silence_ms} ms`}>
+              <Field label={`Silence threshold: ${settings.vad_silence_ms} ms`}>
                 <input
                   type="range"
                   min={400}
@@ -436,23 +426,23 @@ function App() {
                   }
                 />
               </Field>
-              <Field label="Agresiflik">
+              <Field label="Aggressiveness">
                 <select
-                  className="nokat-input"
+                  className="voice-input"
                   value={settings.vad_aggressiveness}
                   onChange={(e) =>
                     update({ vad_aggressiveness: Number(e.target.value) })
                   }
                 >
-                  <option value={1}>1 — Az (konuşmayı kaçırma)</option>
-                  <option value={2}>2 — Dengeli (önerilen)</option>
-                  <option value={3}>3 — Çok (gürültüde temiz dur)</option>
+                  <option value={1}>1 — Low (may miss speech)</option>
+                  <option value={2}>2 — Balanced (recommended)</option>
+                  <option value={3}>3 — High (clean stop in noise)</option>
                 </select>
               </Field>
             </div>
           ) : (
             <p className="text-sm text-neutral-400">
-              Kapalı — yalnızca kısayol ile manuel durdurma.
+              Off — manual stop via shortcut only.
             </p>
           )}
         </section>
@@ -485,7 +475,7 @@ function Field({
   );
 }
 
-/** Tuş kombinasyonu yakalayan input. */
+/** Input that captures key combinations. */
 function HotkeyCapture({
   value,
   capturing,
@@ -521,7 +511,7 @@ function HotkeyCapture({
       if (e.metaKey) modifiers.push("Super");
 
       const main = mainKeyFromEvent(e);
-      if (!main || main.trim() === "") return; // sadece modifier'a basıldı, bekle
+      if (!main || main.trim() === "") return; // only a modifier was pressed, wait
 
       const hotkey = [...modifiers, main].join("+");
       if (hotkey.trim() === "") return;
@@ -537,19 +527,19 @@ function HotkeyCapture({
       ref={ref}
       type="button"
       onClick={onStart}
-      className={`nokat-input text-left font-mono text-xs transition ${
+      className={`voice-input text-left font-mono text-xs transition ${
         capturing
           ? "border-emerald-500 text-emerald-400 ring-1 ring-emerald-500/30"
           : "text-neutral-200"
       }`}
     >
-      {capturing ? "Kısayol için tuşlara basın…" : value || "Kısayol ayarla"}
+      {capturing ? "Press keys for shortcut…" : value || "Set shortcut"}
     </button>
   );
 }
 
 function mainKeyFromEvent(e: KeyboardEvent): string | null {
-  // Modifier tuşları tek başına ana tuş sayılmaz
+  // Modifier keys alone do not count as the main key
   if (
     ["Control", "Alt", "Shift", "Meta"].includes(e.key) ||
     e.code === "ControlLeft" ||
@@ -614,7 +604,7 @@ function mainKeyFromEvent(e: KeyboardEvent): string | null {
   }
 }
 
-/** Equalizer tarzı dalga göstergesi. */
+/** Equalizer-style wave indicator. */
 function WaveIndicator({
   color,
   animate,
@@ -629,7 +619,7 @@ function WaveIndicator({
         <span
           key={i}
           className={`w-[4px] rounded-full ${color} ${
-            animate ? "nokat-wave" : "h-2"
+            animate ? "voice-wave" : "h-2"
           }`}
           style={
             animate
@@ -642,7 +632,7 @@ function WaveIndicator({
   );
 }
 
-// --- İkonlar ---
+// --- Icons ---
 
 function SettingsIcon({ className }: { className?: string }) {
   return (

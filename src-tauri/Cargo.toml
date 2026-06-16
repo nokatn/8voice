@@ -1,6 +1,6 @@
 [package]
 name = "eightvoice"
-version = "0.1.0"
+version = "0.2.0"
 description = "Privacy-first, on-device voice dictation app"
 authors = ["8voice"]
 license = "MIT"
@@ -24,10 +24,13 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 webview2-com = "0.38"
 windows-core = "0.61"
+# Win32 DWM API: köşe yuvarlama tercihi (widget pencereleri için).
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
 
 # Ses yakalama + işleme
 cpal = "0.15"
 rubato = "0.15"
+futures-util = "0.3"
 
 # Voice Activity Detection (konuşma/sessizlik tespiti, otomatik durdurma)
 webrtc-vad = "0.4"
@@ -52,7 +55,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Cloud transcription (Groq Whisper API)
-reqwest = { version = "0.12", features = ["multipart", "json"] }
+reqwest = { version = "0.12", features = ["multipart", "json", "stream"] }
+
+# Async I/O for model downloads
+tokio = { version = "1", features = ["fs", "io-util"] }
 
 [profile.dev]
 # whisper.cpp debug derlemesi çok yavaş; opt-level=1 hızlandırır
