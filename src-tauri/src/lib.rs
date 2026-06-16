@@ -440,8 +440,8 @@ fn cmd_get_state(state: tauri::State<'_, StateMachine>) -> (AppState, Option<Str
 }
 
 #[tauri::command]
-fn cmd_get_settings(shared: tauri::State<'_, Arc<RwLock<Settings>>>) -> Settings {
-    shared.read().clone()
+fn cmd_get_settings(app: AppHandle) -> Settings {
+    app.state::<Arc<RwLock<Settings>>>().read().clone()
 }
 
 #[tauri::command]
