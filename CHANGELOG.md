@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-06-16
+
+### Added
+
+- Marketing site now highlights the floating widget with an interactive, click-to-try demo.
+- New "Widget" section on the landing page shows the pill control, live wave indicator, and processing spinner.
+
+### Changed
+
+- README feature list and landing-page navigation now emphasize the floating widget as a primary interaction surface.
+
 ## [0.2.0] - 2026-06-16
 
 ### Added

@@ -2,16 +2,16 @@
 
 A privacy-first voice dictation app. Press a global shortcut, speak, and 8voice transcribes your speech and injects the text into the focused application. It runs in the system tray and supports both on-device (offline) transcription via Whisper and cloud transcription via the Groq Whisper API.
 
-> **Status:** MVP — Phase 1 complete. Push-to-talk / toggle modes, whisper.cpp integration, text injection, and VAD-based auto-stop are implemented.
+> **Status:** MVP — Phase 1 complete. Push-to-talk / toggle modes, whisper.cpp integration, text injection, VAD-based auto-stop, and the draggable floating widget are implemented.
 
 ## Features
 
 - **Global shortcut** — push-to-talk or toggle mode
+- **Floating widget** — draggable, always-on-top pill for one-click recording with live wave feedback
 - **Offline transcription** — local Whisper GGUF models via whisper.cpp
 - **Cloud transcription** — Groq Whisper API support
 - **Voice Activity Detection (VAD)** — automatic stop after silence
 - **Text injection** — type or paste text into the active window
-- **Floating widget** — minimal on-screen control
 - **System tray** — lives in the tray when the window is closed
 
 ## Tech Stack
