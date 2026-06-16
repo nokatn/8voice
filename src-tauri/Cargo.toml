@@ -1,6 +1,6 @@
 [package]
 name = "eightvoice"
-version = "0.2.17"
+version = "0.2.18"
 description = "Privacy-first, on-device voice dictation app"
 authors = ["8voice"]
 license = "MIT"
@@ -23,10 +23,6 @@ tauri-plugin-store = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
-webview2-com = "0.38"
-windows-core = "0.61"
-# Win32 DWM API: köşe yuvarlama tercihi (widget pencereleri için).
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
 
 # Ses yakalama + işleme
 cpal = "0.15"
@@ -60,6 +56,12 @@ reqwest = { version = "0.12", features = ["multipart", "json", "stream"] }
 
 # Async I/O for model downloads
 tokio = { version = "1", features = ["fs", "io-util"] }
+
+# Windows-only Win32/WebView2 APIs (widget transparency + DWM corner rounding).
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
 
 [profile.dev]
 # whisper.cpp debug derlemesi çok yavaş; opt-level=1 hızlandırır
