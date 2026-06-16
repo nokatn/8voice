@@ -17,6 +17,9 @@ export interface Settings {
   api_provider: ApiProvider;
   api_key: string | null;
   has_completed_onboarding: boolean;
+  start_hidden: boolean;
+  launch_on_startup: boolean;
+  show_tray_icon: boolean;
 }
 
 export interface WhisperModel {

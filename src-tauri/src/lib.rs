@@ -21,6 +21,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, WindowEvent,
 };
+use tauri_plugin_autostart::ManagerExt;
 
 /// Globally shared application state.
 pub struct AppCtx {
@@ -45,6 +46,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None::<Vec<&str>>,
+        ))
         // --- State: register before setup so it is available during window init ---
         .manage(StateMachine::new())
         .manage(AppCtx {
@@ -186,6 +191,11 @@ fn bootstrap(app: &AppHandle) -> tauri::Result<()> {
         tracing::warn!("Could not register shortcut: {e:#}");
     }
 
+    // Apply tray icon visibility
+    if let Some(tray) = app.tray_by_id("main") {
+        let _ = tray.set_visible(loaded.show_tray_icon);
+    }
+
     // If first run, show the main window for onboarding and hide the widget
     // so the setup screen is not covered by the floating mic.
     if !loaded.has_completed_onboarding {
@@ -193,6 +203,14 @@ fn bootstrap(app: &AppHandle) -> tauri::Result<()> {
             let _ = widget.hide();
         }
         open_settings(app);
+    } else if loaded.start_hidden {
+        // User wants a hidden start: hide both windows.
+        if let Some(widget) = app.get_webview_window("widget") {
+            let _ = widget.hide();
+        }
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.hide();
+        }
     }
 
     // Model preload (if path is valid) — only needed in offline mode
@@ -446,6 +464,13 @@ fn cmd_save_settings(app: AppHandle, mut settings: Settings) -> Result<(), Strin
     // Fix invalid fields
     settings.sanitize();
 
+    // Snapshot of previous settings so we can react to changes.
+    let old_settings = {
+        let shared = app.state::<Arc<RwLock<Settings>>>();
+        let s = shared.read().clone();
+        s
+    };
+
     // Save
     settings::save(&app, &settings).map_err(|e| e.to_string())?;
     // Update shared state
@@ -465,8 +490,31 @@ fn cmd_save_settings(app: AppHandle, mut settings: Settings) -> Result<(), Strin
         }
     }
 
-    // Once onboarding is complete, make sure the recording widget is visible.
-    if settings.has_completed_onboarding {
+    // Apply launch-on-startup change immediately
+    if settings.launch_on_startup != old_settings.launch_on_startup {
+        let autolaunch = app.autolaunch();
+        let res = if settings.launch_on_startup {
+            autolaunch.enable()
+        } else {
+            autolaunch.disable()
+        };
+        if let Err(e) = res {
+            tracing::warn!("Could not change autostart setting: {e:#}");
+        }
+    }
+
+    // Apply tray icon visibility change immediately
+    if settings.show_tray_icon != old_settings.show_tray_icon {
+        if let Some(tray) = app.tray_by_id("main") {
+            if let Err(e) = tray.set_visible(settings.show_tray_icon) {
+                tracing::warn!("Could not change tray visibility: {e:#}");
+            }
+        }
+    }
+
+    // Once onboarding is complete, make sure the recording widget is visible
+    // unless the user explicitly wants a hidden start.
+    if settings.has_completed_onboarding && !settings.start_hidden {
         if let Some(widget) = app.get_webview_window("widget") {
             let _ = widget.show();
         }

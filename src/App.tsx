@@ -26,6 +26,9 @@ const DEFAULT_SETTINGS: Settings = {
   api_provider: "offline",
   api_key: null,
   has_completed_onboarding: false,
+  start_hidden: false,
+  launch_on_startup: false,
+  show_tray_icon: true,
 };
 
 const STATE_META: Record<
@@ -397,6 +400,38 @@ function GeneralTab({
           />
         </Field>
       </div>
+
+      <div>
+        <h3 className="mb-1 text-sm font-semibold text-neutral-300">Application behavior</h3>
+        <p className="mb-4 text-sm text-neutral-400">Control how 8voice starts and appears.</p>
+        <div className="grid gap-3">
+          <Toggle
+            label="Start hidden"
+            description="Launch without showing any windows."
+            checked={settings.start_hidden}
+            onChange={(checked) =>
+              update({ start_hidden: checked, show_tray_icon: true })
+            }
+          />
+          <Toggle
+            label="Launch on startup"
+            description="Start 8voice automatically when you log in."
+            checked={settings.launch_on_startup}
+            onChange={(checked) => update({ launch_on_startup: checked })}
+          />
+          <Toggle
+            label="Show tray icon"
+            description="Show the 8voice icon in the system tray."
+            checked={settings.show_tray_icon}
+            onChange={(checked) =>
+              update({
+                show_tray_icon: checked,
+                start_hidden: checked ? settings.start_hidden : false,
+              })
+            }
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -529,21 +564,12 @@ function AutoStopTab({
         <p className="text-sm text-neutral-400">Stop recording automatically when you stop speaking.</p>
       </div>
 
-      <div className="flex items-center justify-between rounded-xl bg-neutral-800/50 p-4">
-        <div>
-          <p className="font-medium">Enable voice activity detection</p>
-          <p className="text-xs text-neutral-400">Recording stops after silence is detected.</p>
-        </div>
-        <label className="relative inline-flex cursor-pointer items-center">
-          <input
-            type="checkbox"
-            className="peer sr-only"
-            checked={settings.vad_enabled}
-            onChange={(e) => update({ vad_enabled: e.target.checked })}
-          />
-          <div className="h-6 w-11 rounded-full bg-neutral-700 transition peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-emerald-500/30 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-5" />
-        </label>
-      </div>
+      <Toggle
+        label="Enable voice activity detection"
+        description="Recording stops after silence is detected."
+        checked={settings.vad_enabled}
+        onChange={(checked) => update({ vad_enabled: checked })}
+      />
 
       {settings.vad_enabled ? (
         <div className="grid gap-5 md:grid-cols-2">
@@ -578,6 +604,38 @@ function AutoStopTab({
       ) : (
         <p className="text-sm text-neutral-400">Off — manual stop via shortcut only.</p>
       )}
+    </div>
+  );
+}
+
+function Toggle({
+  checked,
+  onChange,
+  label,
+  description,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  description?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-neutral-800/50 p-4">
+      <div>
+        <p className="font-medium">{label}</p>
+        {description && (
+          <p className="text-xs text-neutral-400">{description}</p>
+        )}
+      </div>
+      <label className="relative inline-flex cursor-pointer items-center">
+        <input
+          type="checkbox"
+          className="peer sr-only"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <div className="h-6 w-11 rounded-full bg-neutral-700 transition peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-emerald-500/30 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-5" />
+      </label>
     </div>
   );
 }
