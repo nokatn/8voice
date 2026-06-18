@@ -121,6 +121,7 @@ pub fn run() {
             onboarding::cmd_cancel_download,
             onboarding::cmd_validate_local_model,
             onboarding::cmd_list_downloaded_models,
+            onboarding::cmd_delete_downloaded_model,
             onboarding::cmd_validate_groq_key,
             cmd_check_update,
             cmd_install_update,

@@ -310,6 +310,20 @@ pub fn cmd_list_downloaded_models(app: AppHandle) -> Result<Vec<LocalModelInfo>,
     Ok(models)
 }
 
+/// Deletes a previously downloaded model file from the app data directory.
+#[tauri::command]
+pub fn cmd_delete_downloaded_model(app: AppHandle, filename: String) -> Result<(), String> {
+    let dir = models_dir(&app).map_err(|e| e.to_string())?;
+    let path = dir.join(&filename);
+    if !path.exists() {
+        return Ok(());
+    }
+    if !path.is_file() {
+        return Err("Target is not a file".to_string());
+    }
+    std::fs::remove_file(&path).map_err(|e| format!("Could not delete model: {e}"))
+}
+
 /// Validates a Groq API key by listing available models.
 #[tauri::command]
 pub async fn cmd_validate_groq_key(api_key: String) -> Result<bool, String> {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -187,14 +187,16 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
     <main className="flex h-screen w-screen bg-neutral-950 text-neutral-100">
       {/* Sidebar */}
       <aside className="flex w-64 flex-col border-r border-white/10 bg-neutral-900/50">
-        <div className="p-6">
+        <div className="flex items-start gap-3 p-6">
           <img
             src="/logo.svg"
             alt="8voice"
-            className="mb-4 h-12 w-12"
+            className="h-12 w-12 shrink-0"
           />
-          <h1 className="text-lg font-bold tracking-tight">8voice</h1>
-          <p className="text-xs text-neutral-400">Settings</p>
+          <div>
+            <h1 className="text-lg font-bold tracking-tight">8voice</h1>
+            <p className="text-xs text-neutral-400">Settings</p>
+          </div>
         </div>
 
         <nav className="flex-1 space-y-1 px-3 pb-6">
@@ -525,20 +527,21 @@ function TranscriptionTab({
 }) {
   const [showDownloader, setShowDownloader] = useState(false);
   const [models, setModels] = useState<WhisperModel[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState<string>("small");
-  const [downloadStatus, setDownloadStatus] = useState<"idle" | "downloading" | "done" | "error">("idle");
   const [progress, setProgress] = useState<{ downloaded: number; total?: number; percent?: number }>({ downloaded: 0 });
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [downloadedModels, setDownloadedModels] = useState<LocalModelInfo[]>([]);
-
-  const selectedModel = useMemo(
-    () => models.find((m) => m.id === selectedModelId) ?? models[0],
-    [models, selectedModelId],
-  );
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadedFilenames, setDownloadedFilenames] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     invoke<LocalModelInfo[]>("cmd_list_downloaded_models")
-      .then(setDownloadedModels)
+      .then((infos) => {
+        const set = new Set<string>();
+        for (const info of infos) {
+          const fn = info.path.split(/[\\/]/).pop();
+          if (fn) set.add(fn);
+        }
+        setDownloadedFilenames(set);
+      })
       .catch(() => {});
   }, []);
 
@@ -548,14 +551,20 @@ function TranscriptionTab({
         .then(setModels)
         .catch((e) => setDownloadError("Could not load model list: " + String(e)));
       invoke<LocalModelInfo[]>("cmd_list_downloaded_models")
-        .then(setDownloadedModels)
+        .then((infos) => {
+          const set = new Set<string>();
+          for (const info of infos) {
+            const fn = info.path.split(/[\\/]/).pop();
+            if (fn) set.add(fn);
+          }
+          setDownloadedFilenames(set);
+        })
         .catch(() => {});
     }
   }, [showDownloader]);
 
-  const startDownload = async () => {
-    if (!selectedModel) return;
-    setDownloadStatus("downloading");
+  const startDownload = async (model: WhisperModel) => {
+    setDownloadingId(model.id);
     setProgress({ downloaded: 0 });
     setDownloadError(null);
 
@@ -573,54 +582,47 @@ function TranscriptionTab({
           });
           break;
         case "Done":
-          setDownloadStatus("done");
-          invoke<LocalModelInfo[]>("cmd_list_downloaded_models")
-            .then(setDownloadedModels)
-            .catch(() => {});
+          setDownloadingId(null);
+          setDownloadedFilenames((prev) => new Set(prev).add(model.filename));
           break;
         case "Error":
-          setDownloadStatus("error");
+          setDownloadingId(null);
           setDownloadError("Download error: " + event.data.message);
           break;
         case "Cancelled":
-          setDownloadStatus("idle");
+          setDownloadingId(null);
           break;
       }
     };
 
     try {
       await invoke("cmd_download_whisper_model", {
-        filename: selectedModel.filename,
+        filename: model.filename,
         channel,
       });
     } catch (e) {
-      setDownloadStatus("error");
+      setDownloadingId(null);
       setDownloadError("Could not start download: " + String(e));
+    }
+  };
+
+  const deleteModel = async (model: WhisperModel) => {
+    setDownloadError(null);
+    try {
+      await invoke("cmd_delete_downloaded_model", { filename: model.filename });
+      setDownloadedFilenames((prev) => {
+        const next = new Set(prev);
+        next.delete(model.filename);
+        return next;
+      });
+    } catch (e) {
+      setDownloadError("Could not delete model: " + String(e));
     }
   };
 
   const cancelDownload = () => {
     invoke("cmd_cancel_download").catch((e) => console.error("Cancel failed:", e));
   };
-
-  const useDownloadedModel = () => {
-    if (!selectedModel) return;
-    update({
-      api_provider: "offline",
-      model_path: `models/${selectedModel.filename}`,
-    });
-    setShowDownloader(false);
-    setDownloadStatus("idle");
-  };
-
-  const isDownloaded = selectedModel
-    ? downloadedModels.some(
-        (m) =>
-          m.path.endsWith(selectedModel.filename) ||
-          m.path.endsWith(`/${selectedModel.filename}`) ||
-          m.path.endsWith(`\\${selectedModel.filename}`),
-      )
-    : false;
 
   return (
     <div className="grid gap-6">
@@ -681,38 +683,6 @@ function TranscriptionTab({
             </div>
           </Field>
 
-          {/* Downloaded models */}
-          {downloadedModels.length > 0 && (
-            <div>
-              <span className="mb-2 flex items-center gap-1.5 text-xs font-medium text-neutral-400">
-                <CheckIcon className="h-3.5 w-3.5 text-emerald-500" />
-                Downloaded models
-              </span>
-              <div className="space-y-1">
-                {downloadedModels.map((m) => {
-                  const name = m.path.split(/[/\\]/).pop() || m.path;
-                  const isActive = settings.model_path.includes(name);
-                  const onClick = () => update({ model_path: m.path });
-                  return (
-                    <button
-                      key={m.path}
-                      type="button"
-                      onClick={onClick}
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition ${
-                        isActive
-                          ? "bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30"
-                          : "bg-neutral-800/50 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
-                      }`}
-                    >
-                      <span className="font-mono">{name}</span>
-                      <span className="text-neutral-500">{formatSize(m.size_bytes)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* Download model section */}
           <div className="rounded-xl border border-neutral-800 bg-neutral-800/30">
             <button
@@ -735,85 +705,111 @@ function TranscriptionTab({
                   </div>
                 )}
 
-                <div className="mb-3 space-y-2">
+                <div className="space-y-3">
                   {models.map((m) => {
-                    const modelAlreadyDownloaded = downloadedModels.some(
-                      (dm) =>
-                        dm.path.endsWith(m.filename) ||
-                        dm.path.endsWith(`/${m.filename}`) ||
-                        dm.path.endsWith(`\\${m.filename}`),
-                    );
+                    const mm = MODEL_META[m.id] ?? { accuracy: 3, speed: 3, languages: "Multi-language" };
+                    const isDownloaded = downloadedFilenames.has(m.filename);
+                    const isDownloading = downloadingId === m.id;
+                    const isActive = settings.model_path.includes(m.filename);
                     return (
-                      <label
+                      <div
                         key={m.id}
-                        className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition ${
-                          selectedModelId === m.id
+                        className={`w-full rounded-xl border p-4 transition ${
+                          isActive
                             ? "border-emerald-500/50 bg-emerald-500/10"
                             : "border-neutral-800 bg-neutral-800/50 hover:bg-neutral-800"
-                        } ${downloadStatus === "downloading" ? "pointer-events-none opacity-50" : ""}`}
+                        }`}
                       >
-                        <input
-                          type="radio"
-                          name="model-select"
-                          className="mt-0.5 accent-emerald-500"
-                          checked={selectedModelId === m.id}
-                          onChange={() => setSelectedModelId(m.id)}
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
+                        <div className="flex items-start justify-between gap-4">
+                          <div
+                            className={`flex-1 ${isDownloaded ? "cursor-pointer" : ""}`}
+                            onClick={() => {
+                              if (isDownloaded) {
+                                update({ api_provider: "offline", model_path: `models/${m.filename}` });
+                              }
+                            }}
+                          >
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium">{m.name}</span>
-                              {modelAlreadyDownloaded && (
-                                <span className="flex items-center gap-0.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                                  <CheckIcon className="h-3 w-3" />
+                              <span className="font-medium">{m.name}</span>
+                              {isActive && (
+                                <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                                  Active
+                                </span>
+                              )}
+                              {isDownloaded && !isActive && (
+                                <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-medium text-sky-400">
                                   Downloaded
                                 </span>
                               )}
                             </div>
-                            <span className="text-xs text-neutral-400">{m.size_human}</span>
+                            <p className="mt-1 text-xs text-neutral-500">{m.description}</p>
+                            <div className="mt-3 flex items-center gap-2">
+                              <span className="rounded-full bg-neutral-700/50 px-2 py-0.5 text-[10px] font-medium text-neutral-300">
+                                {mm.languages}
+                              </span>
+                              <span className="text-xs text-neutral-400">{m.size_human}</span>
+                            </div>
                           </div>
-                          <p className="text-xs text-neutral-500">{m.description}</p>
+                          <div className="flex flex-col items-end gap-2">
+                            <RatingBar label="Accuracy" value={mm.accuracy} />
+                            <RatingBar label="Speed" value={mm.speed} />
+                            <div className="mt-1 flex items-center gap-1">
+                              {isDownloaded ? (
+                                <button
+                                  type="button"
+                                  onClick={() => deleteModel(m)}
+                                  title="Delete"
+                                  className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-rose-500/10 hover:text-rose-400"
+                                >
+                                  <TrashIcon className="h-4 w-4" />
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => startDownload(m)}
+                                  disabled={isDownloading || downloadingId !== null}
+                                  title={isDownloading ? "Downloading…" : "Download"}
+                                  className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-40"
+                                >
+                                  {isDownloading ? (
+                                    <SpinnerIcon className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <DownloadIcon className="h-4 w-4" />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      </label>
+                        {isDownloading && (
+                          <div className="mt-3">
+                            <div className="mb-1 flex items-center justify-between text-xs">
+                              <span className="text-neutral-300">Downloading…</span>
+                              <span className="text-neutral-400">
+                                {formatSize(progress.downloaded)}
+                                {progress.total ? ` / ${formatSize(progress.total)}` : ""}
+                                {progress.percent != null ? ` (${progress.percent.toFixed(1)}%)` : ""}
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-700">
+                              <div
+                                className="h-full bg-emerald-500 transition-all"
+                                style={{ width: `${progress.percent ?? 0}%` }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={cancelDownload}
+                              className="mt-2 text-xs text-neutral-400 transition hover:text-rose-400"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
-
-                {downloadStatus === "downloading" && (
-                  <div className="mb-3 rounded-lg bg-neutral-800 p-3">
-                    <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="text-neutral-300">Downloading…</span>
-                      <span className="text-neutral-400">
-                        {formatSize(progress.downloaded)}
-                        {progress.total ? ` / ${formatSize(progress.total)}` : ""}
-                        {progress.percent != null ? ` (${progress.percent.toFixed(1)}%)` : ""}
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-700">
-                      <div
-                        className="h-full bg-emerald-500 transition-all"
-                        style={{ width: `${progress.percent ?? 0}%` }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={cancelDownload}
-                      className="mt-2 w-full rounded-md bg-neutral-700 py-1.5 text-xs font-medium text-neutral-200 transition hover:bg-neutral-600"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-
-                {downloadStatus !== "downloading" && (
-                  <button
-                    type="button"
-                    onClick={isDownloaded || downloadStatus === "done" ? useDownloadedModel : startDownload}
-                    className="w-full rounded-lg bg-emerald-600 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-                  >
-                    {downloadStatus === "done" || isDownloaded ? "Use this model" : "Start download"}
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -1248,5 +1244,49 @@ function CheckIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
+  );
+}
+
+function SpinnerIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  );
+}
+
+function RatingBar({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-14 text-right text-[10px] text-neutral-500">{label}</span>
+      <div className="flex gap-1">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div
+            key={i}
+            className={`h-1.5 w-5 rounded-full ${i <= value ? "bg-emerald-500" : "bg-neutral-700"}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const MODEL_META: Record<string, { accuracy: number; speed: number; languages: string }> = {
+  tiny: { accuracy: 1, speed: 5, languages: "Multi-language" },
+  base: { accuracy: 2, speed: 4, languages: "Multi-language" },
+  small: { accuracy: 3, speed: 3, languages: "Multi-language" },
+  medium: { accuracy: 4, speed: 2, languages: "Multi-language" },
+  "large-v3": { accuracy: 5, speed: 1, languages: "Multi-language" },
+  "large-v3-turbo": { accuracy: 4, speed: 4, languages: "Multi-language" },
+};
 
 export default App;
