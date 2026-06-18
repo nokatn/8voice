@@ -145,6 +145,11 @@ impl AudioCapture {
         let in_rate = config.sample_rate.0 as usize;
         let channels = config.channels as usize;
 
+        let device_name_resolved = device.name().unwrap_or_default();
+        tracing::info!(
+            "Audio device opened: \"{device_name_resolved}\", {in_rate} Hz, {channels} ch, format={sample_format:?}"
+        );
+
         let needs_resample = in_rate != TARGET_SAMPLE_RATE;
         let resampler_state = if needs_resample {
             Some(ResamplerState::new(in_rate)?)

@@ -7,9 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.25] - 2026-06-18
+
+### Added
+
+- Diagnostic logging in the recording pipeline: capture stats (sample count, duration, RMS, peak), selected device, language, VAD config, and transcript summary on every run.
+- Audio device info logged on stream open (name, sample rate, channels, format).
+
+### Changed
+
+- Brand logo is now circular (SVG + regenerated PNG/ICO/ICNS icons across the app, tray, store tiles, and favicon).
+- Empty transcripts now surface a user-visible error (microphone silent / speech not detected) instead of silently returning to idle.
+- macOS builds enable whisper-rs `metal` backend to avoid a crash in ggml 1.8.3's CPU/BLAS encoder path on M1 + macOS 12.3.
+
+### Fixed
+
+- macOS crash (`EXC_BAD_ACCESS` at `ggml_backend_sched_graph_compute_async`, PC=0) during transcription on Apple Silicon — encoder now runs on Metal.
+
+## [0.2.24] - 2026-06-16
+
+### Added
+
+- Canonical SVG brand logo (`public/logo.svg`) and `scripts/generate-icons.py` generator.
+- Consistent logo usage across the app header, onboarding, floating widget, system tray, favicon, and landing page.
+
+### Changed
+
+- All Tauri app icons and Microsoft Store tile images regenerated from the canonical logo.
+
 ### Removed
 
 - Removed the "Start hidden" and "Show tray icon" settings toggles. The tray icon is now always shown and the app always opens its windows on startup after onboarding.
+- Removed inconsistent `public/logo-light.jpeg` and `public/logo-dark.jpeg` assets.
 
 ## [0.2.19] - 2026-06-16
 

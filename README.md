@@ -1,6 +1,12 @@
-# 8voice
+<p align="center">
+  <img src="./public/logo.svg" width="120" height="120" alt="8voice logo">
+</p>
 
-A privacy-first voice dictation app. Press a global shortcut, speak, and 8voice transcribes your speech and injects the text into the focused application. It runs in the system tray and supports both on-device (offline) transcription via Whisper and cloud transcription via the Groq Whisper API.
+<h1 align="center">8voice</h1>
+
+<p align="center">
+  A privacy-first voice dictation app. Press a global shortcut, speak, and 8voice transcribes your speech and injects the text into the focused application.
+</p>
 
 > **Status:** MVP — Phase 1 complete. Push-to-talk / toggle modes, whisper.cpp integration, text injection, VAD-based auto-stop, and the draggable floating widget are implemented.
 
@@ -38,6 +44,16 @@ A privacy-first voice dictation app. Press a global shortcut, speak, and 8voice 
 - C/C++ toolchain (required for whisper.cpp native compilation)
 
 ## Installation
+
+### Pre-built binaries
+
+Download the latest release for your platform from the [Releases](https://github.com/alparlsan88/8voice/releases) page:
+
+- **Windows**: `.msi`
+- **macOS**: `.dmg` (universal — Intel + Apple Silicon)
+- **Linux**: `.AppImage` or `.deb`
+
+### Build from source
 
 ```bash
 # Install frontend dependencies

@@ -1,6 +1,6 @@
 [package]
 name = "eightvoice"
-version = "0.2.24"
+version = "0.2.25"
 description = "Privacy-first, on-device voice dictation app"
 authors = ["8voice"]
 license = "MIT"
@@ -35,6 +35,10 @@ webrtc-vad = "0.4"
 
 # Transkripsiyon (on-device)
 # Not: 0.16, bindgen 0.70+ ile gelir → libclang 19+ (LLVM 22 dahil) ile uyumlu.
+# macOS'ta Metal backend açılır (aşağıdaki target bloğunda) — ggml 1.8.3'ün
+# CPU/BLAS (Accelerate) yolu M1 + macOS 12.3'te encoder forward'da NULL op-handler
+# crash'i yapıyor (ggml_backend_sched_graph_compute_async → PC=0). Metal encoder'ı
+# GPU'da çalıştırıp hatalı CPU op yolunu bypass eder. M1'de Metal tam destekli.
 whisper-rs = "0.16"
 
 # Metin enjeksiyonu
@@ -63,6 +67,12 @@ tokio = { version = "1", features = ["fs", "io-util"] }
 webview2-com = "0.38"
 windows-core = "0.61"
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
+
+# macOS: whisper-rs'e Metal feature'ı eklenir (yukarıdaki açıklama).
+# `[dependencies]` altındaki `whisper-rs = "0.16"` ile çakışmaması için
+# macOS target'ında features ile override edilir; diğer platformlar düz kullanır.
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }
 
 [profile.dev]
 # whisper.cpp debug derlemesi çok yavaş; opt-level=1 hızlandırır

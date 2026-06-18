@@ -120,6 +120,7 @@ pub fn run() {
             onboarding::cmd_download_whisper_model,
             onboarding::cmd_cancel_download,
             onboarding::cmd_validate_local_model,
+            onboarding::cmd_list_downloaded_models,
             onboarding::cmd_validate_groq_key,
             cmd_check_update,
             cmd_install_update,
@@ -335,6 +336,18 @@ fn open_settings(app: &AppHandle) {
     }
 }
 
+/// Computes RMS and peak amplitude of a PCM buffer (f32, [-1, 1]).
+/// Used for diagnostics so silent/quiet captures are detectable.
+fn pcm_stats(pcm: &[f32]) -> (f32, f32) {
+    if pcm.is_empty() {
+        return (0.0, 0.0);
+    }
+    let sum_sq: f32 = pcm.iter().map(|&s| s * s).sum();
+    let rms = (sum_sq / pcm.len() as f32).sqrt();
+    let peak = pcm.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+    (rms, peak)
+}
+
 /// Runs the transcribe → inject chain when recording stops.
 /// Called by hotkey.rs (PTT release / toggle) and cmd_stop_recording.
 pub fn run_pipeline(app: &AppHandle) {
@@ -347,6 +360,14 @@ pub fn run_pipeline(app: &AppHandle) {
         // 1) Get PCM
         let pcm = audio::AudioCapture::drain(&ctx.audio_buf);
 
+        // Diagnostic: capture stats so blank/quiet recordings are debuggable.
+        let samples = pcm.len();
+        let duration_ms = samples * 1000 / audio::TARGET_SAMPLE_RATE;
+        let (rms, peak) = pcm_stats(&pcm);
+        tracing::info!(
+            "Recording captured: {samples} samples (~{duration_ms} ms), RMS={rms:.4}, peak={peak:.4}"
+        );
+
         // 2) Transcribe (copy language + provider settings)
         let (language, injection_mode, provider, api_key) = {
             let s = shared.read();
@@ -357,6 +378,9 @@ pub fn run_pipeline(app: &AppHandle) {
                 s.api_key.clone(),
             )
         };
+        tracing::info!(
+            "Transcribing: provider={provider:?}, language={language}, {samples} samples"
+        );
         let text = match provider {
             ApiProvider::Groq => match api_key {
                 Some(key) if !key.trim().is_empty() => {
@@ -392,10 +416,22 @@ pub fn run_pipeline(app: &AppHandle) {
                 }
             },
         };
+        // Diagnostic: transcript summary (first 60 chars)
+        let preview: String = text.chars().take(60).collect();
+        tracing::info!("Transcript: {} chars, preview=\"{preview}\"", text.len());
+
         if text.is_empty() {
-            tracing::info!("Empty transcript; injection skipped");
-            sm.transition(&app, StateEvent::TranscriptionDone);
-            sm.transition(&app, StateEvent::InjectionDone);
+            tracing::warn!(
+                "Empty transcript (RMS={rms:.4}, peak={peak:.4}, {samples} samples, lang={language})"
+            );
+            // Surface the failure to the user instead of silently returning to Idle.
+            // A near-silent capture usually means the wrong/no microphone device.
+            let msg = if rms < 0.01 {
+                "Mikrofon ses almıyor — cihaz seçimini kontrol edin."
+            } else {
+                "Konuşma algılanamadı — tekrar deneyin."
+            };
+            sm.transition(&app, StateEvent::Fail(msg.into()));
             return;
         }
 
@@ -443,6 +479,13 @@ pub fn start_recording(app: &AppHandle) -> Result<(), String> {
         let s = shared.read();
         (s.input_device.clone(), s.vad_cfg())
     };
+    let device_label = device.as_deref().unwrap_or("system default");
+    tracing::info!(
+        "Starting recording: device=\"{device_label}\", VAD={}, silence={}ms, aggressiveness={}",
+        vad_cfg.enabled,
+        vad_cfg.silence_ms,
+        vad_cfg.aggressiveness
+    );
     ctx.audio
         .start(app, device.as_deref(), vad_cfg)
         .map_err(|e| e.to_string())?;

@@ -276,6 +276,40 @@ pub fn cmd_validate_local_model(path: String) -> Result<LocalModelInfo, String> 
     })
 }
 
+/// Lists already-downloaded model files in the app data directory.
+#[tauri::command]
+pub fn cmd_list_downloaded_models(app: AppHandle) -> Result<Vec<LocalModelInfo>, String> {
+    let dir = match models_dir(&app) {
+        Ok(d) => d,
+        Err(_) => return Ok(vec![]),
+    };
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut models = Vec::new();
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("Could not read models dir: {e}"))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase());
+        let valid_extension = matches!(ext.as_deref(), Some("bin") | Some("gguf"));
+        let size_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        models.push(LocalModelInfo {
+            path: path.to_string_lossy().to_string(),
+            exists: true,
+            valid_extension,
+            size_bytes,
+        });
+    }
+    models.sort_by_key(|m| m.size_bytes);
+    Ok(models)
+}
+
 /// Validates a Groq API key by listing available models.
 #[tauri::command]
 pub async fn cmd_validate_groq_key(api_key: String) -> Result<bool, String> {
