@@ -17,10 +17,10 @@ pub struct Settings {
     /// Selected microphone device name; `None` = system default.
     #[serde(default)]
     pub input_device: Option<String>,
-    /// Path to the Whisper GGUF model file (relative to the app data dir).
+    /// Path to the model file (Whisper .bin) or model directory (Sherpa/Vosk).
     #[serde(default = "default_model_path")]
     pub model_path: String,
-    /// Transcription language: `"tr"`, `"en"`, or `"auto"`.
+    /// Transcription language: `"tr"`, `"en"`, `"auto"`, or any Whisper code.
     #[serde(default = "default_language")]
     pub language: String,
     /// Global shortcut (e.g. `"Ctrl+Shift+Space"`).
@@ -41,12 +41,21 @@ pub struct Settings {
     /// VAD aggressiveness: 1 = Medium, 2 = Aggressive, 3 = VeryAggressive.
     #[serde(default = "default_vad_aggressiveness")]
     pub vad_aggressiveness: u8,
-    /// Transcription provider: local model or Groq API.
+    /// Transcription provider.
     #[serde(default = "default_api_provider")]
     pub api_provider: ApiProvider,
-    /// Groq API key. None/empty disables API mode.
+    /// Legacy Groq API key (kept for backwards compat; migrated to `groq_api_key`).
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Groq API key.
+    #[serde(default)]
+    pub groq_api_key: Option<String>,
+    /// Deepgram API key.
+    #[serde(default)]
+    pub deepgram_api_key: Option<String>,
+    /// AssemblyAI API key.
+    #[serde(default)]
+    pub assemblyai_api_key: Option<String>,
     /// Whether the first-run onboarding has been completed.
     #[serde(default)]
     pub has_completed_onboarding: bool,
@@ -78,11 +87,32 @@ impl Settings {
         if self.hotkey.trim().is_empty() {
             self.hotkey = default_hotkey();
         }
-        // If API mode is selected but key is empty, fall back to offline
-        if self.api_provider == ApiProvider::Groq {
-            if self.api_key.as_deref().unwrap_or("").trim().is_empty() {
-                self.api_provider = ApiProvider::Offline;
+        // Migrate legacy `api_key` → `groq_api_key` if groq_api_key is empty
+        if self.groq_api_key.is_none() || self.groq_api_key.as_deref().unwrap_or("").trim().is_empty() {
+            if let Some(ref k) = self.api_key {
+                if !k.trim().is_empty() {
+                    self.groq_api_key = Some(k.clone());
+                }
             }
+        }
+        // If a cloud provider is selected but its key is missing, fall back to Whisper
+        match self.api_provider {
+            ApiProvider::Groq if self.groq_api_key.as_deref().unwrap_or("").trim().is_empty() => {
+                // also check legacy api_key
+                if self.api_key.as_deref().unwrap_or("").trim().is_empty() {
+                    self.api_provider = ApiProvider::Whisper;
+                } else {
+                    // migrate before fallback check
+                    self.groq_api_key = self.api_key.clone();
+                }
+            }
+            ApiProvider::Deepgram if self.deepgram_api_key.as_deref().unwrap_or("").trim().is_empty() => {
+                self.api_provider = ApiProvider::Whisper;
+            }
+            ApiProvider::AssemblyAi if self.assemblyai_api_key.as_deref().unwrap_or("").trim().is_empty() => {
+                self.api_provider = ApiProvider::Whisper;
+            }
+            _ => {}
         }
     }
 }
@@ -115,10 +145,19 @@ pub enum InjectionMode {
 #[serde(rename_all = "snake_case")]
 pub enum ApiProvider {
     /// Local whisper.cpp model (ggml/bin).
+    #[serde(alias = "offline")]
     #[default]
-    Offline,
+    Whisper,
+    /// Local Sherpa-ONNX engine.
+    SherpaOnnx,
+    /// Local Vosk engine.
+    Vosk,
     /// Groq Whisper API (cloud, requires API key).
     Groq,
+    /// Deepgram Nova-2 (cloud, requires API key).
+    Deepgram,
+    /// AssemblyAI Universal-2 (cloud, requires API key).
+    AssemblyAi,
 }
 
 fn default_model_path() -> String {
@@ -128,10 +167,19 @@ fn default_language() -> String {
     "auto".to_string()
 }
 fn default_hotkey() -> String {
-    "Ctrl+Shift+Space".to_string()
+    // macOS uses the Command key ("Super" in Tauri's accelerator syntax);
+    // Windows and Linux use Ctrl.
+    #[cfg(target_os = "macos")]
+    {
+        "Super+Q".to_string()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "Ctrl+Q".to_string()
+    }
 }
 fn default_hotkey_mode() -> HotkeyMode {
-    HotkeyMode::PushToTalk
+    HotkeyMode::Toggle
 }
 fn default_injection_mode() -> InjectionMode {
     InjectionMode::Auto
@@ -146,7 +194,7 @@ fn default_vad_aggressiveness() -> u8 {
     2
 }
 fn default_api_provider() -> ApiProvider {
-    ApiProvider::Offline
+    ApiProvider::Whisper
 }
 fn default_launch_on_startup() -> bool {
     false
@@ -166,6 +214,9 @@ impl Default for Settings {
             vad_aggressiveness: default_vad_aggressiveness(),
             api_provider: default_api_provider(),
             api_key: None,
+            groq_api_key: None,
+            deepgram_api_key: None,
+            assemblyai_api_key: None,
             has_completed_onboarding: false,
             launch_on_startup: default_launch_on_startup(),
         }
@@ -179,10 +230,25 @@ const STORE_KEY: &str = "settings";
 /// Invalid/empty critical fields are corrected to defaults.
 pub fn load(app: &AppHandle) -> anyhow::Result<Settings> {
     let store = app.store(STORE_FILE)?;
-    let mut settings: Settings = store
-        .get(STORE_KEY)
-        .and_then(|v| serde_json::from_value::<Settings>(v).ok())
-        .unwrap_or_default();
+    // Force reload from disk to pick up any persisted changes.
+    if let Err(e) = store.reload() {
+        tracing::warn!("Store reload failed: {e:#}");
+    }
+    let raw = store.get(STORE_KEY);
+    let mut settings = match raw {
+        Some(v) => match serde_json::from_value::<Settings>(v.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("Settings deserialization failed: {e:?}, value={v}");
+                Settings::default()
+            }
+        },
+        None => {
+            tracing::warn!("Store key '{STORE_KEY}' not found in {STORE_FILE}");
+            Settings::default()
+        }
+    };
+    tracing::info!("Loaded settings: has_completed_onboarding={}", settings.has_completed_onboarding);
     settings.sanitize();
     Ok(settings)
 }
@@ -191,6 +257,7 @@ pub fn load(app: &AppHandle) -> anyhow::Result<Settings> {
 pub fn save(app: &AppHandle, settings: &Settings) -> anyhow::Result<()> {
     let store = app.store(STORE_FILE)?;
     let value = serde_json::to_value(settings)?;
+    tracing::info!("Saving settings: has_completed_onboarding={}", settings.has_completed_onboarding);
     store.set(STORE_KEY, value);
     store.save()?;
     Ok(())

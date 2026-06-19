@@ -67,10 +67,10 @@ export default function Widget() {
   const loading = state === "transcribing" || state === "injecting";
 
   return (
-    // Pill body: draggable, rounded corners blend with the transparent window.
+    // Rectangular body: draggable, sharp corners blend with the transparent window.
     <main
       data-tauri-drag-region
-      className="flex h-screen w-screen select-none items-center gap-2 overflow-hidden rounded-full bg-neutral-800/95 px-2 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_20px_-4px_rgba(255,255,255,0.15)] ring-1 ring-white/25"
+      className="flex h-screen w-screen select-none items-center gap-2 overflow-hidden rounded-none bg-neutral-800/95 px-2 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_20px_-4px_rgba(255,255,255,0.15)] ring-1 ring-white/25"
     >
       {/* Left: logo button — no drag-region, clickable.
           Disabled while loading (recording has already finished). */}

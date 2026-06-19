@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.27] - 2026-06-19
+
+### Added
+
+- **Deepgram** cloud transcription provider with API key validation.
+- **AssemblyAI** cloud transcription provider with API key validation.
+- 6-step onboarding wizard (Provider → Microphone → Language → Shortcut → Injection → Finish) with progress bar and step navigation, replacing the previous sidebar-tab layout.
+- `HotkeyCapture` component in the Shortcut step: press any key combination for the global shortcut.
+- `store.reload()` call in `settings::load()` to ensure persisted settings are always read from disk.
+- Tracing logs (`tracing::info!` / `tracing::warn!`) in `settings::load()` and `settings::save()` for debugging persistence issues.
+- "Settings..." item in the floating widget context menu — right-click the widget to open the settings window without going through the tray.
+- Full Whisper language list (99 languages, labeled in their native script) in the settings language picker, replacing the previous Auto/Turkish/English-only selection.
+- **Vosk** offline speech recognition engine: new provider in settings + model directory picker with validation and downloadable model list.
+- **Sherpa-ONNX** offline speech recognition engine: new provider in settings + model directory picker with validation and downloadable model list (Whisper ONNX models).
+
+### Changed
+
+- Onboarding layout completely rewritten: tab-based sidebar replaced with a 6-step sequential wizard that forces users through all essential settings.
+- Provider selection uses Cloud API / Local Engine tabs (50% split buttons) instead of a 2-column grid — each tab shows its cards full-width.
+- Sidebar logo alignment: changed from `justify-between` to `gap-3` so the logo and text are left-aligned together.
+- Default shortcut mode is now Toggle (was Push-to-talk).
+- Default global shortcut is now `Ctrl+Q` on Windows/Linux and `Super+Q` (Cmd+Q) on macOS (was `Ctrl+Shift+Space`). Existing users keep their saved shortcut; only new installs / reset settings use the new default.
+
+### Fixed
+
+- Unicode escape sequences (`\u2026`, `\u2014`) no longer render as literal text — replaced with actual `…` and `—` characters.
+- Settings not persisting on restart: `store.reload()` added before reading settings file on startup.
+- Vosk and Sherpa-ONNX engine modules now provide stub implementations with friendly install instructions instead of compile-time crate dependency errors.
+
 ## [0.2.26] - 2026-06-18
 
 ### Added

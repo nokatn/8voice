@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { Settings, WhisperModel, DownloadEvent, LocalModelInfo } from "./types";
+import type { Settings, WhisperModel, VoskModelInfo, SherpaModelInfo, DownloadEvent, LocalModelInfo } from "./types";
+import { LANGUAGES, AUTO_LANGUAGE } from "./languages";
 
 // --- Types (must match backend) ---
 
@@ -13,18 +14,23 @@ type AppState =
   | "injecting"
   | "error";
 
+const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+
 const DEFAULT_SETTINGS: Settings = {
   input_device: null,
   model_path: "models/ggml-small.bin",
   language: "auto",
-  hotkey: "Ctrl+Shift+Space",
-  hotkey_mode: "push_to_talk",
+  hotkey: isMac ? "Super+Q" : "Ctrl+Q",
+  hotkey_mode: "toggle",
   injection_mode: "auto",
   vad_enabled: true,
   vad_silence_ms: 1200,
   vad_aggressiveness: 2,
-  api_provider: "offline",
+  api_provider: "whisper",
   api_key: null,
+  groq_api_key: null,
+  deepgram_api_key: null,
+  assemblyai_api_key: null,
   has_completed_onboarding: false,
   launch_on_startup: false,
 };
@@ -467,9 +473,12 @@ function GeneralTab({
             value={settings.language}
             onChange={(e) => update({ language: e.target.value })}
           >
-            <option value="auto">Auto</option>
-            <option value="tr">Turkish</option>
-            <option value="en">English</option>
+            <option value={AUTO_LANGUAGE}>Auto</option>
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.name}
+              </option>
+            ))}
           </select>
         </Field>
 
@@ -513,6 +522,23 @@ function GeneralTab({
             onChange={(checked) => update({ launch_on_startup: checked })}
           />
         </div>
+      </div>
+
+      <div>
+        <h3 className="mb-1 text-sm font-semibold text-neutral-300">Setup</h3>
+        <p className="mb-4 text-sm text-neutral-400">Re-run the initial setup wizard.</p>
+        <button
+          type="button"
+          onClick={async () => {
+            await invoke("cmd_save_settings", {
+              settings: { ...settings, has_completed_onboarding: false },
+            });
+            window.location.reload();
+          }}
+          className="w-full rounded-xl bg-neutral-800 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700"
+        >
+          Re-run onboarding
+        </button>
       </div>
     </div>
   );
@@ -597,12 +623,13 @@ function TranscriptionTab({
 
     try {
       await invoke("cmd_download_whisper_model", {
+        modelUrl: model.url,
         filename: model.filename,
         channel,
       });
     } catch (e) {
       setDownloadingId(null);
-      setDownloadError("Could not start download: " + String(e));
+      setDownloadError((prev) => prev ?? "Could not start download: " + String(e));
     }
   };
 
@@ -641,12 +668,20 @@ function TranscriptionTab({
             })
           }
         >
-          <option value="offline">Local model (offline)</option>
-          <option value="groq">Groq Whisper API</option>
+          <optgroup label="Local engines">
+            <option value="whisper">Whisper (whisper.cpp)</option>
+            <option value="sherpa_onnx">Sherpa-ONNX</option>
+            <option value="vosk">Vosk</option>
+          </optgroup>
+          <optgroup label="Cloud API">
+            <option value="groq">Groq Whisper API</option>
+            <option value="deepgram">Deepgram Nova-2</option>
+            <option value="assembly_ai">AssemblyAI Universal-2</option>
+          </optgroup>
         </select>
       </Field>
 
-      {settings.api_provider === "offline" ? (
+      {settings.api_provider === "whisper" ? (
         <>
           <Field label="Model path" icon={<FileIcon className="h-3.5 w-3.5" />}>
             <div className="flex gap-2">
@@ -709,6 +744,7 @@ function TranscriptionTab({
                   {models.map((m) => {
                     const mm = MODEL_META[m.id] ?? { accuracy: 3, speed: 3, languages: "Multi-language" };
                     const isDownloaded = downloadedFilenames.has(m.filename);
+                    const isRecommended = RECOMMENDED_MODELS.has(m.id);
                     const isDownloading = downloadingId === m.id;
                     const isActive = settings.model_path.includes(m.filename);
                     return (
@@ -725,12 +761,17 @@ function TranscriptionTab({
                             className={`flex-1 ${isDownloaded ? "cursor-pointer" : ""}`}
                             onClick={() => {
                               if (isDownloaded) {
-                                update({ api_provider: "offline", model_path: `models/${m.filename}` });
+                                update({ api_provider: "whisper", model_path: `models/${m.filename}` });
                               }
                             }}
                           >
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{m.name}</span>
+                              {isRecommended && (
+                                <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400">
+                                  Recommended
+                                </span>
+                              )}
                               {isActive && (
                                 <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
                                   Active
@@ -814,19 +855,221 @@ function TranscriptionTab({
             )}
           </div>
         </>
-      ) : (
+      ) : settings.api_provider === "groq" ? (
         <Field label="Groq API key" icon={<KeyIcon className="h-3.5 w-3.5" />}>
           <input
             type="password"
             className="voice-input font-mono text-xs"
-            value={settings.api_key ?? ""}
+            value={settings.groq_api_key ?? ""}
             onChange={(e) =>
-              update({ api_key: e.target.value || null })
+              update({ groq_api_key: e.target.value || null })
             }
             placeholder="gsk_..."
           />
         </Field>
-      )}
+      ) : settings.api_provider === "deepgram" ? (
+        <Field label="Deepgram API key" icon={<KeyIcon className="h-3.5 w-3.5" />}>
+          <input
+            type="password"
+            className="voice-input font-mono text-xs"
+            value={settings.deepgram_api_key ?? ""}
+            onChange={(e) =>
+              update({ deepgram_api_key: e.target.value || null })
+            }
+            placeholder="DEEPGRAM_API_KEY"
+          />
+        </Field>
+      ) : settings.api_provider === "assembly_ai" ? (
+        <Field label="AssemblyAI API key" icon={<KeyIcon className="h-3.5 w-3.5" />}>
+          <input
+            type="password"
+            className="voice-input font-mono text-xs"
+            value={settings.assemblyai_api_key ?? ""}
+            onChange={(e) =>
+              update({ assemblyai_api_key: e.target.value || null })
+            }
+            placeholder="ASSEMBLYAI_API_KEY"
+          />
+        </Field>
+      ) : settings.api_provider === "vosk" ? (
+        <VoskModelSection settings={settings} update={update} />
+      ) : settings.api_provider === "sherpa_onnx" ? (
+        <SherpaModelSection settings={settings} update={update} />
+      ) : null}
+    </div>
+  );
+}
+
+function VoskModelSection({
+  settings,
+  update,
+}: {
+  settings: Settings;
+  update: (patch: Partial<Settings>) => void;
+}) {
+  const [models, setModels] = useState<VoskModelInfo[]>([]);
+  const [valid, setValid] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    invoke<VoskModelInfo[]>("cmd_list_vosk_models").then(setModels).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (settings.model_path) {
+      invoke<boolean>("cmd_validate_vosk_model", { path: settings.model_path })
+        .then(setValid)
+        .catch(() => setValid(null));
+    }
+  }, [settings.model_path]);
+
+  return (
+    <div className="grid gap-6">
+      <Field label="Vosk model directory" icon={<FileIcon className="h-3.5 w-3.5" />}>
+        <div className="flex gap-2">
+          <input
+            className="voice-input font-mono text-xs"
+            value={settings.model_path}
+            onChange={(e) => update({ model_path: e.target.value })}
+            placeholder="C:\vosk-models\vosk-model-small-tr-0.3"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const selected = await open({
+                  multiple: false,
+                  directory: true,
+                  title: "Choose Vosk model directory",
+                });
+                if (selected && typeof selected === "string") {
+                  update({ model_path: selected });
+                }
+              } catch (e) {
+                console.error("Could not select Vosk model:", e);
+              }
+            }}
+            className="shrink-0 rounded-lg bg-neutral-800 px-3 text-xs font-semibold text-neutral-200 transition hover:bg-neutral-700 hover:text-white"
+          >
+            Browse
+          </button>
+        </div>
+        {valid === false && (
+          <p className="mt-1 text-xs text-rose-400">
+            Directory does not contain a valid Vosk model (missing am/conf files).
+          </p>
+        )}
+        {valid === true && (
+          <p className="mt-1 text-xs text-emerald-400">Valid Vosk model directory.</p>
+        )}
+      </Field>
+
+      <div className="rounded-xl border border-neutral-800 bg-neutral-800/30 p-4">
+        <p className="mb-3 text-xs font-medium text-neutral-400">Available Vosk models (download manually)</p>
+        <div className="space-y-2">
+          {models.map((m) => (
+            <a
+              key={m.id}
+              href={m.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between rounded-lg bg-neutral-800/50 px-3 py-2 transition hover:bg-neutral-700"
+            >
+              <div>
+                <span className="text-sm text-neutral-200">{m.name}</span>
+                <span className="ml-2 text-xs text-neutral-500">{m.size_human}</span>
+              </div>
+              <DownloadIcon className="h-3.5 w-3.5 text-neutral-400" />
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SherpaModelSection({
+  settings,
+  update,
+}: {
+  settings: Settings;
+  update: (patch: Partial<Settings>) => void;
+}) {
+  const [models, setModels] = useState<SherpaModelInfo[]>([]);
+  const [valid, setValid] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    invoke<SherpaModelInfo[]>("cmd_list_sherpa_models").then(setModels).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (settings.model_path) {
+      invoke<boolean>("cmd_validate_sherpa_model", { path: settings.model_path })
+        .then(setValid)
+        .catch(() => setValid(null));
+    }
+  }, [settings.model_path]);
+
+  return (
+    <div className="grid gap-6">
+      <Field label="Sherpa-ONNX model directory" icon={<FileIcon className="h-3.5 w-3.5" />}>
+        <div className="flex gap-2">
+          <input
+            className="voice-input font-mono text-xs"
+            value={settings.model_path}
+            onChange={(e) => update({ model_path: e.target.value })}
+            placeholder="C:\sherpa-models\sherpa-onnx-whisper-tiny"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const selected = await open({
+                  multiple: false,
+                  directory: true,
+                  title: "Choose Sherpa-ONNX model directory",
+                });
+                if (selected && typeof selected === "string") {
+                  update({ model_path: selected });
+                }
+              } catch (e) {
+                console.error("Could not select Sherpa model:", e);
+              }
+            }}
+            className="shrink-0 rounded-lg bg-neutral-800 px-3 text-xs font-semibold text-neutral-200 transition hover:bg-neutral-700 hover:text-white"
+          >
+            Browse
+          </button>
+        </div>
+        {valid === false && (
+          <p className="mt-1 text-xs text-rose-400">
+            Directory does not contain a valid Sherpa-ONNX model (missing encoder.onnx, decoder.onnx, or tokens.txt).
+          </p>
+        )}
+        {valid === true && (
+          <p className="mt-1 text-xs text-emerald-400">Valid Sherpa-ONNX model directory.</p>
+        )}
+      </Field>
+
+      <div className="rounded-xl border border-neutral-800 bg-neutral-800/30 p-4">
+        <p className="mb-3 text-xs font-medium text-neutral-400">Available Sherpa-ONNX Whisper models (download manually)</p>
+        <div className="space-y-2">
+          {models.map((m) => (
+            <a
+              key={m.id}
+              href={m.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between rounded-lg bg-neutral-800/50 px-3 py-2 transition hover:bg-neutral-700"
+            >
+              <div>
+                <span className="text-sm text-neutral-200">{m.name}</span>
+                <span className="ml-2 text-xs text-neutral-500">{m.size_human}</span>
+              </div>
+              <DownloadIcon className="h-3.5 w-3.5 text-neutral-400" />
+            </a>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1280,6 +1523,8 @@ function RatingBar({ label, value }: { label: string; value: number }) {
   );
 }
 
+const RECOMMENDED_MODELS = new Set(["small", "large-v3-turbo"]);
+
 const MODEL_META: Record<string, { accuracy: number; speed: number; languages: string }> = {
   tiny: { accuracy: 1, speed: 5, languages: "Multi-language" },
   base: { accuracy: 2, speed: 4, languages: "Multi-language" },
@@ -1287,6 +1532,7 @@ const MODEL_META: Record<string, { accuracy: number; speed: number; languages: s
   medium: { accuracy: 4, speed: 2, languages: "Multi-language" },
   "large-v3": { accuracy: 5, speed: 1, languages: "Multi-language" },
   "large-v3-turbo": { accuracy: 4, speed: 4, languages: "Multi-language" },
+  "distil-medium.en": { accuracy: 4, speed: 4, languages: "English" },
 };
 
 export default App;

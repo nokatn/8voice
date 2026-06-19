@@ -23,6 +23,7 @@ pub struct WhisperModel {
     pub id: String,
     pub name: String,
     pub filename: String,
+    pub url: String,
     pub size_bytes: u64,
     pub size_human: String,
     pub description: String,
@@ -78,6 +79,7 @@ pub fn cmd_list_whisper_models() -> Vec<WhisperModel> {
             id: "tiny".to_string(),
             name: "Tiny".to_string(),
             filename: "ggml-tiny.bin".to_string(),
+            url: format!("{HF_BASE_URL}/{}", "ggml-tiny.bin"),
             size_bytes: 39 * 1024 * 1024,
             size_human: "~39 MB".to_string(),
             description: "Fastest, lowest accuracy. Good for testing.".to_string(),
@@ -86,6 +88,7 @@ pub fn cmd_list_whisper_models() -> Vec<WhisperModel> {
             id: "base".to_string(),
             name: "Base".to_string(),
             filename: "ggml-base.bin".to_string(),
+            url: format!("{HF_BASE_URL}/{}", "ggml-base.bin"),
             size_bytes: 74 * 1024 * 1024,
             size_human: "~74 MB".to_string(),
             description: "Balanced speed and accuracy for entry-level use.".to_string(),
@@ -94,6 +97,7 @@ pub fn cmd_list_whisper_models() -> Vec<WhisperModel> {
             id: "small".to_string(),
             name: "Small".to_string(),
             filename: "ggml-small.bin".to_string(),
+            url: format!("{HF_BASE_URL}/{}", "ggml-small.bin"),
             size_bytes: 466 * 1024 * 1024,
             size_human: "~466 MB".to_string(),
             description: "Recommended default. Solid accuracy on most CPUs.".to_string(),
@@ -102,6 +106,7 @@ pub fn cmd_list_whisper_models() -> Vec<WhisperModel> {
             id: "medium".to_string(),
             name: "Medium".to_string(),
             filename: "ggml-medium.bin".to_string(),
+            url: format!("{HF_BASE_URL}/{}", "ggml-medium.bin"),
             size_bytes: 1_500 * 1024 * 1024,
             size_human: "~1.5 GB".to_string(),
             description: "High accuracy, slower transcription.".to_string(),
@@ -110,6 +115,7 @@ pub fn cmd_list_whisper_models() -> Vec<WhisperModel> {
             id: "large-v3".to_string(),
             name: "Large v3".to_string(),
             filename: "ggml-large-v3.bin".to_string(),
+            url: format!("{HF_BASE_URL}/{}", "ggml-large-v3.bin"),
             size_bytes: 2_900 * 1024 * 1024,
             size_human: "~2.9 GB".to_string(),
             description: "Best accuracy, requires more RAM and CPU.".to_string(),
@@ -118,9 +124,19 @@ pub fn cmd_list_whisper_models() -> Vec<WhisperModel> {
             id: "large-v3-turbo".to_string(),
             name: "Large v3 Turbo".to_string(),
             filename: "ggml-large-v3-turbo.bin".to_string(),
+            url: format!("{HF_BASE_URL}/{}", "ggml-large-v3-turbo.bin"),
             size_bytes: 1_500 * 1024 * 1024,
             size_human: "~1.5 GB".to_string(),
             description: "Large-level accuracy with faster inference.".to_string(),
+        },
+        WhisperModel {
+            id: "distil-medium.en".to_string(),
+            name: "Distil Medium (en)".to_string(),
+            filename: "ggml-medium-32-2.en.bin".to_string(),
+            url: "https://huggingface.co/distil-whisper/distil-medium.en/resolve/main/ggml-medium-32-2.en.bin".to_string(),
+            size_bytes: 794 * 1024 * 1024,
+            size_human: "~794 MB".to_string(),
+            description: "English-only, distilled variant. 2× faster than Medium with comparable accuracy.".to_string(),
         },
     ]
 }
@@ -141,22 +157,32 @@ fn models_dir(app: &AppHandle) -> Result<PathBuf> {
 pub async fn cmd_download_whisper_model(
     app: AppHandle,
     controller: State<'_, DownloadController>,
+    model_url: String,
     filename: String,
     channel: Channel<DownloadEvent>,
 ) -> Result<(), String> {
     controller.set_cancelled(false);
 
-    let url = format!("{HF_BASE_URL}/{filename}");
-    let dir = models_dir(&app).map_err(|e| e.to_string())?;
+    tracing::info!(%model_url, filename = %filename, "Model download starting");
+
+    let dir = models_dir(&app).map_err(|e| {
+        tracing::error!(%e, "Failed to resolve models dir");
+        e.to_string()
+    })?;
     tokio::fs::create_dir_all(&dir)
         .await
-        .map_err(|e| format!("Could not create models dir: {e}"))?;
+        .map_err(|e| {
+            tracing::error!(dir = %dir.display(), %e, "Failed to create models dir");
+            format!("Could not create models dir: {e}")
+        })?;
     let target = dir.join(&filename);
     let temp_target = dir.join(format!(".{filename}.partial"));
 
-    let result = download_with_progress(&url, &temp_target, &target, &controller, &channel).await;
+    tracing::info!(target = %target.display(), "Starting file download");
+    let result = download_with_progress(&model_url, &temp_target, &target, &controller, &channel).await;
 
     if controller.is_cancelled() {
+        tracing::warn!("Download cancelled by user");
         let _ = tokio::fs::remove_file(&temp_target).await;
         let _ = channel.send(DownloadEvent::Cancelled);
         return Ok(());
@@ -164,12 +190,14 @@ pub async fn cmd_download_whisper_model(
 
     match result {
         Ok(path) => {
+            tracing::info!(path = %path.display(), "Download completed successfully");
             let _ = channel.send(DownloadEvent::Done {
                 path: path.to_string_lossy().to_string(),
             });
             Ok(())
         }
         Err(e) => {
+            tracing::error!(%e, "Download failed");
             let _ = tokio::fs::remove_file(&temp_target).await;
             let _ = channel.send(DownloadEvent::Error {
                 message: e.to_string(),
@@ -187,12 +215,14 @@ async fn download_with_progress(
     channel: &Channel<DownloadEvent>,
 ) -> Result<PathBuf> {
     let client = reqwest::Client::new();
+    tracing::info!(%url, "HTTP GET request");
     let resp = client
         .get(url)
         .send()
         .await
         .context("Model download request failed")?;
 
+    tracing::info!(status = %resp.status(), "HTTP response received");
     if !resp.status().is_success() {
         return Err(anyhow!(
             "Download failed with status {} for {}",
@@ -202,6 +232,7 @@ async fn download_with_progress(
     }
 
     let total = resp.content_length();
+    tracing::info!(total = ?total, "Download content length");
     let _ = channel.send(DownloadEvent::Started { total });
 
     let mut file = tokio::fs::File::create(temp_target)
@@ -234,6 +265,7 @@ async fn download_with_progress(
         }
     }
 
+    tracing::info!("Download stream complete, flushing and renaming");
     file.flush().await.context("Could not flush model file")?;
     drop(file);
 

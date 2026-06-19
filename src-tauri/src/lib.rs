@@ -7,10 +7,12 @@ mod hotkey;
 mod inject;
 mod onboarding;
 mod settings;
+mod sherpa_engine;
 mod state;
 mod transcribe;
 mod tray;
 mod vad;
+mod vosk_engine;
 
 use parking_lot::RwLock;
 use settings::{ApiProvider, Settings};
@@ -123,6 +125,12 @@ pub fn run() {
             onboarding::cmd_list_downloaded_models,
             onboarding::cmd_delete_downloaded_model,
             onboarding::cmd_validate_groq_key,
+            cmd_validate_deepgram_key,
+            cmd_validate_assemblyai_key,
+            vosk_engine::cmd_list_vosk_models,
+            vosk_engine::cmd_validate_vosk_model,
+            sherpa_engine::cmd_list_sherpa_models,
+            sherpa_engine::cmd_validate_sherpa_model,
             cmd_check_update,
             cmd_install_update,
         ])
@@ -223,19 +231,46 @@ fn bootstrap(app: &AppHandle) -> tauri::Result<()> {
         open_settings(app);
     }
 
-    // Model preload (if path is valid) — only needed in offline mode
-    if loaded.api_provider == ApiProvider::Offline {
-        let model_path = resolve_model_path(app, &loaded.model_path);
-        if model_path.exists() {
-            if let Err(e) = transcribe::Transcriber::load(&model_path) {
-                tracing::warn!("Model preload failed: {e:#}");
+    // Model preload (if path is valid) — per-provider
+    let model_path = resolve_model_path(app, &loaded.model_path);
+    match loaded.api_provider {
+        ApiProvider::Whisper => {
+            if model_path.exists() {
+                if let Err(e) = transcribe::Transcriber::load(&model_path) {
+                    tracing::warn!("Model preload failed: {e:#}");
+                }
+            } else {
+                tracing::warn!(
+                    "Model not found ({}); a warning will be shown in settings",
+                    model_path.display()
+                );
             }
-        } else {
-            tracing::warn!(
-                "Model not found ({}); a warning will be shown in settings",
-                model_path.display()
-            );
         }
+        ApiProvider::Vosk => {
+            if model_path.is_dir() {
+                if let Err(e) = vosk_engine::VoskTranscriber::load(&model_path) {
+                    tracing::warn!("Vosk model preload failed: {e:#}");
+                }
+            } else {
+                tracing::warn!(
+                    "Vosk model dir not found ({}); a warning will be shown in settings",
+                    model_path.display()
+                );
+            }
+        }
+        ApiProvider::SherpaOnnx => {
+            if model_path.is_dir() {
+                if let Err(e) = sherpa_engine::SherpaTranscriber::load(&model_path) {
+                    tracing::warn!("Sherpa-ONNX model preload failed: {e:#}");
+                }
+            } else {
+                tracing::warn!(
+                    "Sherpa-ONNX model dir not found ({}); a warning will be shown in settings",
+                    model_path.display()
+                );
+            }
+        }
+        _ => {}
     }
 
     Ok(())
@@ -370,49 +405,139 @@ pub fn run_pipeline(app: &AppHandle) {
         );
 
         // 2) Transcribe (copy language + provider settings)
-        let (language, injection_mode, provider, api_key) = {
-            let s = shared.read();
-            (
-                s.language.clone(),
-                s.injection_mode,
-                s.api_provider,
-                s.api_key.clone(),
-            )
-        };
+        let (language, injection_mode, provider, api_key, groq_key, deepgram_key, assemblyai_key) =
+            {
+                let s = shared.read();
+                (
+                    s.language.clone(),
+                    s.injection_mode,
+                    s.api_provider,
+                    s.api_key.clone(),
+                    s.groq_api_key.clone(),
+                    s.deepgram_api_key.clone(),
+                    s.assemblyai_api_key.clone(),
+                )
+            };
         tracing::info!(
             "Transcribing: provider={provider:?}, language={language}, {samples} samples"
         );
         let text = match provider {
-            ApiProvider::Groq => match api_key {
+            ApiProvider::Whisper => {
+                match transcribe::Transcriber::transcribe(&pcm, &language) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tracing::error!("Whisper transcription error: {e:#}");
+                        sm.transition(
+                            &app,
+                            StateEvent::Fail(format!("Whisper transcription: {e}")),
+                        );
+                        return;
+                    }
+                }
+            }
+            ApiProvider::SherpaOnnx => {
+                match sherpa_engine::SherpaTranscriber::transcribe(&pcm, &language) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tracing::error!("Sherpa-ONNX transcription error: {e:#}");
+                        sm.transition(
+                            &app,
+                            StateEvent::Fail(format!("Sherpa-ONNX transcription: {e}")),
+                        );
+                        return;
+                    }
+                }
+            }
+            ApiProvider::Vosk => {
+                match vosk_engine::VoskTranscriber::transcribe(&pcm, &language) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tracing::error!("Vosk transcription error: {e:#}");
+                        sm.transition(
+                            &app,
+                            StateEvent::Fail(format!("Vosk transcription: {e}")),
+                        );
+                        return;
+                    }
+                }
+            }
+            ApiProvider::Groq => {
+                let key = groq_key
+                    .or(api_key)
+                    .filter(|k| !k.trim().is_empty());
+                match key {
+                    Some(k) => {
+                        match transcribe::transcribe_groq(&pcm, &language, &k).await {
+                            Ok(t) => t,
+                            Err(e) => {
+                                tracing::error!("Groq transcription error: {e:#}");
+                                sm.transition(
+                                    &app,
+                                    StateEvent::Fail(format!("Groq transcription: {e}")),
+                                );
+                                return;
+                            }
+                        }
+                    }
+                    None => {
+                        tracing::error!("Groq provider selected but API key is empty");
+                        sm.transition(
+                            &app,
+                            StateEvent::Fail(
+                                "Groq API key missing. Add it in Settings.".into(),
+                            ),
+                        );
+                        return;
+                    }
+                }
+            }
+            ApiProvider::Deepgram => match deepgram_key {
                 Some(key) if !key.trim().is_empty() => {
-                    match transcribe::transcribe_groq(&pcm, &language, &key).await {
+                    match transcribe::transcribe_deepgram(&pcm, &language, &key).await {
                         Ok(t) => t,
                         Err(e) => {
-                            tracing::error!("Groq transcription error: {e:#}");
+                            tracing::error!("Deepgram transcription error: {e:#}");
                             sm.transition(
                                 &app,
-                                StateEvent::Fail(format!("Groq transcription: {e}")),
+                                StateEvent::Fail(format!("Deepgram transcription: {e}")),
                             );
                             return;
                         }
                     }
                 }
                 _ => {
-                    tracing::error!("Groq provider selected but API key is empty");
+                    tracing::error!("Deepgram provider selected but API key is empty");
                     sm.transition(
                         &app,
                         StateEvent::Fail(
-                            "Groq API key missing. Add it in Settings.".into(),
+                            "Deepgram API key missing. Add it in Settings.".into(),
                         ),
                     );
                     return;
                 }
             },
-            ApiProvider::Offline => match transcribe::Transcriber::transcribe(&pcm, &language) {
-                Ok(t) => t,
-                Err(e) => {
-                    tracing::error!("Transcription error: {e:#}");
-                    sm.transition(&app, StateEvent::Fail(format!("Transcription: {e}")));
+            ApiProvider::AssemblyAi => match assemblyai_key {
+                Some(key) if !key.trim().is_empty() => {
+                    match transcribe::transcribe_assemblyai(&pcm, &language, &key).await {
+                        Ok(t) => t,
+                        Err(e) => {
+                            tracing::error!("AssemblyAI transcription error: {e:#}");
+                            sm.transition(
+                                &app,
+                                StateEvent::Fail(format!("AssemblyAI transcription: {e}")),
+                            );
+                            return;
+                        }
+                    }
+                }
+                _ => {
+                    tracing::error!("AssemblyAI provider selected but API key is empty");
+                    sm.transition(
+                        &app,
+                        StateEvent::Fail(
+                            "AssemblyAI API key missing. Add it in Settings.".into(),
+                        ),
+                    );
                     return;
                 }
             },
@@ -534,12 +659,25 @@ fn cmd_save_settings(app: AppHandle, mut settings: Settings) -> Result<(), Strin
     if let Err(e) = hotkey::register(&app, &settings.hotkey, settings.hotkey_mode) {
         tracing::warn!("Could not re-register shortcut: {e:#}");
     }
-    // Reload model if path changed and in offline mode
-    if settings.api_provider == ApiProvider::Offline {
-        let path = resolve_model_path(&app, &settings.model_path);
-        if path.exists() {
-            let _ = transcribe::Transcriber::load(&path);
+    // Reload model if path changed — per-provider
+    let path = resolve_model_path(&app, &settings.model_path);
+    match settings.api_provider {
+        ApiProvider::Whisper => {
+            if path.exists() {
+                let _ = transcribe::Transcriber::load(&path);
+            }
         }
+        ApiProvider::Vosk => {
+            if path.is_dir() {
+                let _ = vosk_engine::VoskTranscriber::load(&path);
+            }
+        }
+        ApiProvider::SherpaOnnx => {
+            if path.is_dir() {
+                let _ = sherpa_engine::SherpaTranscriber::load(&path);
+            }
+        }
+        _ => {}
     }
 
     // Apply launch-on-startup change immediately
@@ -611,7 +749,8 @@ fn cmd_open_settings(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Shows a native context menu on the widget window with a "Quit" option.
+/// Shows a native context menu on the widget window with "Settings..." and
+/// "Quit" options.
 #[tauri::command]
 fn cmd_widget_context_menu(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
     let webview_window = app
@@ -619,15 +758,20 @@ fn cmd_widget_context_menu(app: AppHandle, x: f64, y: f64) -> Result<(), String>
         .ok_or("Widget window not found")?;
     let window = webview_window.as_ref().window();
 
+    let settings =
+        MenuItem::with_id(&app, "settings", "Settings...", true, None::<&str>)
+            .map_err(|e| e.to_string())?;
+    let sep = PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?;
     let quit = MenuItem::with_id(&app, "quit", "Quit 8voice", true, None::<&str>)
         .map_err(|e| e.to_string())?;
-    let menu = Menu::with_items(&app, &[&quit]).map_err(|e| e.to_string())?;
+    let menu = Menu::with_items(&app, &[&settings, &sep, &quit])
+        .map_err(|e| e.to_string())?;
 
     let app_clone = app.clone();
-    window.on_menu_event(move |_, event| {
-        if event.id().as_ref() == "quit" {
-            app_clone.exit(0);
-        }
+    window.on_menu_event(move |_, event| match event.id().as_ref() {
+        "settings" => open_settings(&app_clone),
+        "quit" => app_clone.exit(0),
+        _ => {}
     });
 
     menu.popup_at(
@@ -637,6 +781,22 @@ fn cmd_widget_context_menu(app: AppHandle, x: f64, y: f64) -> Result<(), String>
     .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Cloud API key validation
+// ---------------------------------------------------------------------------
+
+/// Validates a Deepgram API key.
+#[tauri::command]
+async fn cmd_validate_deepgram_key(api_key: String) -> Result<bool, String> {
+    transcribe::validate_deepgram_key(&api_key).await
+}
+
+/// Validates an AssemblyAI API key.
+#[tauri::command]
+async fn cmd_validate_assemblyai_key(api_key: String) -> Result<bool, String> {
+    transcribe::validate_assemblyai_key(&api_key).await
 }
 
 // ---------------------------------------------------------------------------

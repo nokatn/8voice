@@ -68,8 +68,4 @@ pub fn register(app: &AppHandle, hotkey: &str, mode: HotkeyMode) -> Result<()> {
     Ok(())
 }
 
-/// Unregisters all shortcuts.
-pub fn unregister_all(app: &AppHandle) -> Result<()> {
-    app.global_shortcut().unregister_all()?;
-    Ok(())
-}
+

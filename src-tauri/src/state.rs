@@ -63,14 +63,6 @@ impl StateMachine {
         self.last_error.lock().clone()
     }
 
-    /// Returns true and clears the flag if a transition to Transcribing happened.
-    pub fn take_pending_transcribe(&self) -> bool {
-        let mut p = self.pending_transcribe.lock();
-        let v = *p;
-        *p = false;
-        v
-    }
-
     /// Applies a transition. Returns `true` if valid, `false` if invalid.
     /// Emits an event to the frontend on every successful transition.
     pub fn transition(&self, app: &AppHandle, event: StateEvent) -> bool {

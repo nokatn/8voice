@@ -42,7 +42,7 @@ pub type SharedBuffer = Arc<Mutex<VecDeque<f32>>>;
 /// We never move the stream between threads — we only access it from a single
 /// thread during start/stop. This newtype makes it `Send` so that `AppCtx`
 /// satisfies Tauri's `Send + Sync` requirement.
-struct SendStream(Stream);
+struct SendStream(#[allow(dead_code)] Stream);
 unsafe impl Send for SendStream {}
 
 /// Microphone capture.

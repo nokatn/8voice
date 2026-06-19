@@ -1,10 +1,10 @@
-//! Transcription — whisper-rs (whisper.cpp) FFI wrapper + Groq Whisper API.
+//! Transcription — whisper-rs (whisper.cpp) FFI wrapper + cloud API clients.
 //!
 //! Contract:
 //! - Input: `&[f32]` 16 kHz mono PCM, language code, model path / API key
 //! - Output: `String` transcript
 //! - Accept: model is loaded once and kept in memory; clear error on failure;
-//!   <3 s for 10 s audio (modern CPU, CPU mode); Groq mode requires internet
+//!   <3 s for 10 s audio (modern CPU, CPU mode); Groq/DG/AAI modes require internet
 
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
@@ -216,4 +216,213 @@ fn pcm_f32_to_wav(pcm: &[f32], sample_rate: u32) -> Vec<u8> {
     }
 
     out
+}
+
+// ---------------------------------------------------------------------------
+// Deepgram Nova-2 Cloud API
+// ---------------------------------------------------------------------------
+
+const DEEPGRAM_URL: &str = "https://api.deepgram.com/v1/listen";
+const DEEPGRAM_MODEL: &str = "nova-2";
+
+/// PCM → Deepgram Nova-2 API → text (async).
+pub async fn transcribe_deepgram(
+    pcm: &[f32],
+    _lang: &str,
+    api_key: &str,
+) -> anyhow::Result<String> {
+    if api_key.trim().is_empty() {
+        return Err(anyhow::anyhow!("Deepgram API key is missing"));
+    }
+    if pcm.len() < 16 {
+        return Ok(String::new());
+    }
+
+    let wav = pcm_f32_to_wav(pcm, 16_000);
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(DEEPGRAM_URL)
+        .query(&[
+            ("model", DEEPGRAM_MODEL),
+            ("punctuate", "true"),
+            ("encoding", "linear16"),
+            ("sample_rate", "16000"),
+            ("channels", "1"),
+        ])
+        .bearer_auth(api_key.trim())
+        .header("Content-Type", "audio/wav")
+        .body(wav)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Deepgram request failed: {e}"))?;
+
+    let status = resp.status();
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| anyhow::anyhow!("Could not parse Deepgram response: {e}"))?;
+
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "Deepgram error {status}: {}",
+            body["err_msg"].as_str().unwrap_or("unknown error"),
+        ));
+    }
+
+    let text = body["results"]["channels"][0]["alternatives"][0]["transcript"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    Ok(text)
+}
+
+/// Validates a Deepgram API key by listing models.
+pub async fn validate_deepgram_key(api_key: &str) -> Result<bool, String> {
+    if api_key.trim().is_empty() {
+        return Ok(false);
+    }
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api.deepgram.com/v1/models")
+        .bearer_auth(api_key.trim())
+        .send()
+        .await
+        .map_err(|e| format!("Deepgram validation request failed: {e}"))?;
+    Ok(resp.status().is_success())
+}
+
+// ---------------------------------------------------------------------------
+// AssemblyAI Universal-2 Cloud API
+// ---------------------------------------------------------------------------
+
+const ASSEMBLYAI_BASE: &str = "https://api.assemblyai.com/v2";
+
+/// PCM → AssemblyAI Universal-2 API → text (async).
+pub async fn transcribe_assemblyai(
+    pcm: &[f32],
+    _lang: &str,
+    api_key: &str,
+) -> anyhow::Result<String> {
+    if api_key.trim().is_empty() {
+        return Err(anyhow::anyhow!("AssemblyAI API key is missing"));
+    }
+    if pcm.len() < 16 {
+        return Ok(String::new());
+    }
+
+    let client = reqwest::Client::new();
+
+    // 1) Upload audio
+    let wav = pcm_f32_to_wav(pcm, 16_000);
+    let upload_url = format!("{}/upload", ASSEMBLYAI_BASE);
+    let upload_resp = client
+        .post(&upload_url)
+        .header("Authorization", api_key.trim())
+        .body(wav)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("AssemblyAI upload request failed: {e}"))?;
+
+    let upload_status = upload_resp.status();
+    let upload_body: serde_json::Value = upload_resp
+        .json()
+        .await
+        .map_err(|e| anyhow::anyhow!("Could not parse AssemblyAI upload response: {e}"))?;
+
+    if !upload_status.is_success() {
+        return Err(anyhow::anyhow!(
+            "AssemblyAI upload error {upload_status}: {}",
+            upload_body["error"].as_str().unwrap_or("unknown error"),
+        ));
+    }
+
+    let audio_url = upload_body["upload_url"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("AssemblyAI upload response missing upload_url"))?
+        .to_string();
+
+    // 2) Submit transcription
+    let transcript_url = format!("{}/transcript", ASSEMBLYAI_BASE);
+    let submit_body = serde_json::json!({
+        "audio_url": audio_url,
+        "language_detection": true,
+    });
+
+    let submit_resp = client
+        .post(&transcript_url)
+        .header("Authorization", api_key.trim())
+        .json(&submit_body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("AssemblyAI submit request failed: {e}"))?;
+
+    let submit_status = submit_resp.status();
+    let submit_data: serde_json::Value = submit_resp
+        .json()
+        .await
+        .map_err(|e| anyhow::anyhow!("Could not parse AssemblyAI submit response: {e}"))?;
+
+    if !submit_status.is_success() {
+        return Err(anyhow::anyhow!(
+            "AssemblyAI submit error {submit_status}: {}",
+            submit_data["error"].as_str().unwrap_or("unknown error"),
+        ));
+    }
+
+    let transcript_id = submit_data["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("AssemblyAI submit response missing id"))?
+        .to_string();
+
+    // 3) Poll for result
+    let poll_url = format!("{}/transcript/{}", ASSEMBLYAI_BASE, transcript_id);
+    let text = loop {
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        let poll_resp = client
+            .get(&poll_url)
+            .header("Authorization", api_key.trim())
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("AssemblyAI poll request failed: {e}"))?;
+
+        let poll_data: serde_json::Value = poll_resp
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("Could not parse AssemblyAI poll response: {e}"))?;
+
+        match poll_data["status"].as_str() {
+            Some("completed") => {
+                break poll_data["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+            }
+            Some("error") => {
+                return Err(anyhow::anyhow!(
+                    "AssemblyAI transcription error: {}",
+                    poll_data["error"].as_str().unwrap_or("unknown"),
+                ));
+            }
+            _ => continue,
+        }
+    };
+
+    Ok(text)
+}
+
+/// Validates an AssemblyAI API key by listing accounts.
+pub async fn validate_assemblyai_key(api_key: &str) -> Result<bool, String> {
+    if api_key.trim().is_empty() {
+        return Ok(false);
+    }
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{}/account", ASSEMBLYAI_BASE))
+        .header("Authorization", api_key.trim())
+        .send()
+        .await
+        .map_err(|e| format!("AssemblyAI validation request failed: {e}"))?;
+    Ok(resp.status().is_success())
 }
