@@ -81,6 +81,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           MACOSX_DEPLOYMENT_TARGET: '10.15'
           CMAKE_OSX_DEPLOYMENT_TARGET: '10.15'
         with:
@@ -95,6 +97,69 @@ jobs:
             - **Windows**: `.msi`
             - **macOS**: `.dmg` (universal — works on Intel and Apple Silicon)
             - **Linux**: `.AppImage` or `.deb`
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload updater manifest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+
+          # Determine Tauri updater target(s) for this platform
+          targets=()
+          case "${{ runner.os }}" in
+            Windows)  targets=("windows-x86_64") ;;
+            macOS)    targets=("darwin-x86_64" "darwin-aarch64") ;;
+            Linux)    targets=("linux-x86_64") ;;
+          esac
+
+          # Find the update archive signature file
+          shopt -s nullglob
+          sig_files=(./*.sig ./target/**/*.sig ./src-tauri/target/**/*.sig)
+          sig=""
+          for f in "${sig_files[@]}"; do
+            case "$f" in
+              *.tar.gz.sig|*.msi.zip.sig|*.app.tar.gz.sig) sig="$f"; break ;;
+            esac
+          done
+          if [ -z "$sig" ]; then
+            for f in "${sig_files[@]}"; do
+              case "$f" in
+                *.exe.sig|*.msi.sig|*.dmg.sig|*.deb.sig|*.rpm.sig|*.AppImage.sig) continue ;;
+                *.sig) sig="$f"; break ;;
+              esac
+            done
+          fi
+
+          if [ -z "$sig" ]; then
+            echo "::warning::No updater .sig file found — update manifest not uploaded"
+            find . -name "*.sig" 2>/dev/null | head -5
+            exit 0
+          fi
+
+          signature=$(cat "$sig")
+          archive_name=$(basename "$sig" .sig)
+          version="${GITHUB_REF_NAME#v}"
+
+          for target in "${targets[@]}"; do
+            cat > "$target.json" <<EOJSON
+          {
+            "version": "$version",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$archive_name",
+            "signature": "$signature"
+          }
+          EOJSON
+
+            for i in 1 2 3 4 5; do
+              if gh release upload "${{ github.ref_name }}" "$target.json" --clobber 2>/dev/null; then
+                echo "Uploaded $target.json"
+                break
+              fi
+              echo "Retry $i/5..."
+              sleep 5
+            done
+          done

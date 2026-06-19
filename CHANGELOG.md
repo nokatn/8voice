@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.28] - 2026-06-19
+
+### Changed
+
+- Updater endpoint switched from placeholder CDN (`your-cdn.com`) to GitHub Releases. The app now fetches update manifests from `https://github.com/alparlsan88/8voice/releases/latest/download/{{target}}.json`.
+- GitHub Actions release workflow now passes `TAURI_PRIVATE_KEY` and `TAURI_KEY_PASSWORD` secrets to `tauri-action` for signing updater artifacts.
+- Release workflow now generates per-platform JSON update manifests (`windows-x86_64.json`, `darwin-x86_64.json`, `darwin-aarch64.json`, `linux-x86_64.json`) and uploads them as release assets.
+- Releases are now published automatically (`releaseDraft: false`) so the `latest` redirect resolves correctly.
+- `createUpdaterArtifacts` enabled in `tauri.conf.json` so Tauri generates `.sig` and `.tar.gz` updater artifacts during builds.
+
+### Fixed
+
+- Update check was failing with "error decoding response body" because the endpoint pointed to `your-cdn.com` which doesn't exist. Now points to GitHub Releases where actual .msi/.dmg/.AppImage assets are hosted.
+
 ## [0.2.27] - 2026-06-19
 
 ### Added
@@ -240,3 +254,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Initial MVP release.
+
+[unreleased]: https://github.com/alparlsan88/8voice/compare/v0.2.28...HEAD
+[0.2.28]: https://github.com/alparlsan88/8voice/releases/tag/v0.2.28
+[0.2.27]: https://github.com/alparlsan88/8voice/releases/tag/v0.2.27

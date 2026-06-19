@@ -1,6 +1,6 @@
 [package]
 name = "eightvoice"
-version = "0.2.27"
+version = "0.2.28"
 description = "Privacy-first, on-device voice dictation app"
 authors = ["8voice"]
 license = "MIT"
