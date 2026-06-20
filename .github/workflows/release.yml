@@ -65,6 +65,10 @@ jobs:
         with:
           version: "17"
 
+      - name: Install create-dmg (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: brew install create-dmg
+
       - name: Set environment variables (macOS only)
         if: matrix.platform == 'macos-latest'
         run: echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
@@ -131,8 +135,6 @@ jobs:
           esac
 
           # Find updater archive + sig files (tar.gz, msi.zip, nsis.zip, app.tar.gz)
-          shopt -s nullglob
-          shopt -s globstar
           search_root="."
 
           # On macOS universal build the bundles live under target/universal-apple-darwin
@@ -146,15 +148,15 @@ jobs:
           sig=""
 
           # Prefer updater-specific archives
-          for f in "$search_root"/**/*.{tar.gz,zip}; do
+          for f in $(find "$search_root" -name "*.tar.gz" -o -name "*.zip" 2>/dev/null); do
             case "$f" in
               *.app.tar.gz|*.nsis.zip|*.msi.zip|*.AppImage.tar.gz)
                 archive="$f"
                 ;;
             esac
           done
-          [ -z "$archive" ] && archive=$(ls "$search_root"/**/*.tar.gz 2>/dev/null | head -1)
-          [ -z "$archive" ] && archive=$(ls "$search_root"/**/*.zip 2>/dev/null | head -1)
+          [ -z "$archive" ] && archive=$(find "$search_root" -name "*.tar.gz" 2>/dev/null | head -1)
+          [ -z "$archive" ] && archive=$(find "$search_root" -name "*.zip" 2>/dev/null | head -1)
 
           if [ -n "$archive" ]; then
             sig="${archive}.sig"
@@ -163,7 +165,7 @@ jobs:
               [ ! -f "$sig" ] && sig="${archive%.zip}.zip.sig"
             fi
           fi
-          [ ! -f "$sig" ] && sig=$(ls "$search_root"/**/*.sig 2>/dev/null | head -1)
+          [ ! -f "$sig" ] && sig=$(find "$search_root" -name "*.sig" 2>/dev/null | head -1)
 
           if [ -z "$archive" ]; then
             echo "::warning::No updater archive found — skipping upload"
