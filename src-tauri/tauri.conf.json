@@ -43,7 +43,7 @@
     "updater": {
       "active": true,
       "dialog": false,
-      "pubkey": "dW50cnRydXN0ZWQgY29tbWVudDogbWluaXNpZ24gcHVibGljIGtleTogMzQzMDE2ODdCQzJGQ0NBMApSV1NnekMrOGh4WXdOSnJFSVgxWFdjNTN0cDNFZjRQK2N5L0xrT2R6L2k0WmEyQW51TmdCTUY2bgo=",
+      "pubkey": "dW50cnRydXN0ZWQgY29tbWVudDogbWluaXNpZ24gcHVibGljIGtleTogQTk0Njc2QTZGQTAxMTNGClJXUS9FUXI2cG5aR3FicjVkcmJsL3ZkdXRydmIzSDQwN1hXR2JKeE1NNEk4cmJNVER4SjVDaWlOCg==",
       "endpoints": [
         "https://github.com/alparlsan88/8voice/releases/latest/download/{{target}}.json"
       ]
