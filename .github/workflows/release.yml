@@ -78,11 +78,18 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Write signing key to file
+        shell: bash
+        run: |
+          printf '%s' "${{ secrets.TAURI_PRIVATE_KEY }}" > /tmp/tauri_signing_key
+          chmod 600 /tmp/tauri_signing_key
+          echo "Key written, size: $(wc -c < /tmp/tauri_signing_key) bytes"
+
       - name: Build and release Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PATH: /tmp/tauri_signing_key
           MACOSX_DEPLOYMENT_TARGET: '10.15'
           CMAKE_OSX_DEPLOYMENT_TARGET: '10.15'
         with:
