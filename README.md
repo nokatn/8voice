@@ -1,15 +1,11 @@
 <p align="center">
-  <img src="./public/logo.svg" width="120" height="120" alt="8voice logo">
+  <img src="./public/8voice-kapak-gorseli.png" width="600" alt="8voice cover">
 </p>
 
 <h1 align="center">8voice</h1>
 
 <p align="center">
   A privacy-first voice dictation app. Press a global shortcut, speak, and 8voice transcribes your speech into text — directly into any application.
-</p>
-
-<p align="center">
-  <strong>Status:</strong> MVP — Phase 1 complete. Supports offline (Whisper.cpp) and cloud (Groq, Deepgram, AssemblyAI) transcription with push-to-talk / toggle modes, VAD auto-stop, and a floating recording widget.
 </p>
 
 ## Features
