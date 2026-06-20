@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.31] - 2026-06-20
+
+### Fixed
+
+- CI signing was failing with "incorrect updater private key password" — regenerated signing key pair with known password and updated GitHub Secrets.
+
+### Changed
+
+- Changed CI env var name from `TAURI_PRIVATE_KEY` to `TAURI_SIGNING_PRIVATE_KEY` (Tauri v2 CLI requirement).
+
 ## [0.2.29] - 2026-06-19
 
 ### Changed
