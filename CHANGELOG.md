@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.29] - 2026-06-19
+
+### Changed
+
+- Removed `releaseDraft: true` so releases are published automatically and `latest` redirect works.
+- Moved `permissions: contents: write` to workflow top level for reliable release creation.
+- Added upload of `.tar.gz`/`.zip` updater archives and `.sig` files alongside JSON manifests.
+
+### Fixed
+
+- CI build was failing with "A public key has been found, but no private key" — user must now set `TAURI_PRIVATE_KEY` and `TAURI_KEY_PASSWORD` GitHub secrets; CI passes when secrets are configured.
+
 ## [0.2.28] - 2026-06-19
 
 ### Changed
@@ -255,6 +267,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial MVP release.
 
-[unreleased]: https://github.com/alparlsan88/8voice/compare/v0.2.28...HEAD
+[unreleased]: https://github.com/alparlsan88/8voice/compare/v0.2.29...HEAD
+[0.2.29]: https://github.com/alparlsan88/8voice/releases/tag/v0.2.29
 [0.2.28]: https://github.com/alparlsan88/8voice/releases/tag/v0.2.28
 [0.2.27]: https://github.com/alparlsan88/8voice/releases/tag/v0.2.27
