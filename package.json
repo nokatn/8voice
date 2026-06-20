@@ -2,7 +2,7 @@
   "name": "8voice",
   "private": true,
   "license": "MIT",
-  "version": "0.2.37",
+  "version": "0.2.38",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.38] - 2026-06-20
+
+### Changed
+
+- README updated with cover image, multi-engine support, cloud providers, 99 languages, onboarding wizard, auto-updater.
+- CONTRIBUTING.md and SECURITY.md updated to reflect current project state.
+
+### Fixed
+
+- macOS CI: installed `create-dmg` via Homebrew for DMG bundling.
+- macOS CI: replaced `shopt -s globstar` with `find` in upload script (macOS bash 3.x doesn't support globstar).
+- Windows/Linux CI: signing key password issue resolved with passwordless key.
+
+### Added
+
+- Capak görseli added to README header.
+
 ## [0.2.34] - 2026-06-20
 
 ### Fixed
