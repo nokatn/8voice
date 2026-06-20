@@ -2,9 +2,9 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| Version | Supported |
+| --- | --- |
+| 0.2.x | ✅ |
 
 ## Reporting a Vulnerability
 
@@ -26,6 +26,7 @@ We aim to respond to security reports within 7 days and will keep you informed t
 
 ## Security Notes
 
-- API keys (e.g. Groq) are stored locally in the user's settings file and are never sent anywhere except to the configured provider.
+- API keys (Groq, Deepgram, AssemblyAI) are stored locally in the user's settings file and are never sent anywhere except to the configured provider.
 - Transcription audio is processed locally before being sent to a cloud provider only when cloud mode is explicitly enabled.
 - The app requests only the platform permissions required for audio capture, global shortcuts, and text injection.
+- Updater bundles are signed with an Ed25519 key to verify authenticity before installation.

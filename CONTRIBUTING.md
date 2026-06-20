@@ -7,26 +7,23 @@ Thank you for your interest in contributing! This document explains how to get s
 1. Fork the repository and clone your fork.
 2. Install prerequisites listed in [README.md](./README.md).
 3. Run `npm install` in the project root.
-4. Download a Whisper model (e.g. `ggml-small.bin`) into `src-tauri/models/`.
-5. Run `npm run tauri dev` to start the app in development mode.
+4. Run `npm run tauri dev` to start the app in development mode. Models can be downloaded from the app's built-in downloader, or manually from [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp).
 
 ## Development Workflow
 
 - Create a new branch for your change: `git checkout -b feature/your-feature-name`.
 - Make focused, minimal changes.
 - Keep the existing code style.
-- Add or update comments when the change is non-trivial.
 - Verify your change with:
   - `cargo check` (Rust)
   - `npm run build` (TypeScript + Vite)
-  - `cargo test` (Rust tests)
+  - `npx tsc --noEmit` (TypeScript type check)
 - Open a pull request with a clear description.
 
 ## Code Style
 
 - **Rust:** follow `cargo fmt` and `cargo clippy`.
 - **TypeScript/React:** use the existing Prettier/Tailwind conventions.
-- **Comments:** write in English so the project stays accessible to global contributors.
 - **Commits:** use clear, concise messages in English.
 
 ## Reporting Bugs
