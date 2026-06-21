@@ -4,6 +4,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Settings, WhisperModel, VoskModelInfo, SherpaModelInfo, DownloadEvent, LocalModelInfo } from "./types";
 import { LANGUAGES, AUTO_LANGUAGE } from "./languages";
+import { addEntry } from "./history";
+import HistoryTab from "./HistoryTab";
 
 // --- Types (must match backend) ---
 
@@ -88,7 +90,7 @@ const STATE_META: Record<
   },
 };
 
-type SettingsTab = "general" | "transcription" | "injection" | "autostop";
+type SettingsTab = "general" | "transcription" | "injection" | "autostop" | "history";
 
 type UpdateInfo = {
   version: string;
@@ -113,6 +115,8 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null);
   const [updateProgress, setUpdateProgress] = useState<null | "downloading" | "installed">(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -145,6 +149,7 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
       unT = await listen<string>("app://transcript", (e) => {
         setLastTranscript(e.payload);
         copyToClipboard(e.payload);
+        addEntry(e.payload).catch(console.error);
       });
       unU = await listen<UpdateInfo>("app://update-available", (e) => {
         setUpdateAvailable(e.payload);
@@ -233,6 +238,13 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
             icon={<StopwatchIcon className="h-5 w-5" />}
           >
             Auto stop
+          </TabButton>
+          <TabButton
+            active={activeTab === "history"}
+            onClick={() => setActiveTab("history")}
+            icon={<HistoryIcon className="h-5 w-5" />}
+          >
+            History
           </TabButton>
         </nav>
       </aside>
@@ -353,18 +365,24 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
             {activeTab === "autostop" && (
               <AutoStopTab settings={settings} update={update} />
             )}
+            {activeTab === "history" && <HistoryTab key={activeTab} />}
           </div>
 
           {/* Updates */}
-          <div className="mt-6 flex items-center justify-between rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
-            <div>
+          <div className="mt-6 rounded-2xl bg-neutral-900 p-5 shadow-lg ring-1 ring-white/5">
+            <div className="flex items-center justify-between">
+              <div>
               <p className="text-sm font-semibold">Updates</p>
               <p className="text-xs text-neutral-400">
                 {checkingUpdate
                   ? "Checking for updates…"
                   : updateAvailable
                     ? `Version ${updateAvailable.version} is ready to install.`
-                    : "8voice checks for updates automatically on startup."}
+                    : updateError
+                      ? updateError
+                      : updateStatus
+                        ? updateStatus
+                        : "8voice checks for updates automatically on startup."}
               </p>
             </div>
             <button
@@ -372,15 +390,20 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
               disabled={checkingUpdate}
               onClick={async () => {
                 setCheckingUpdate(true);
+                setUpdateError(null);
+                setUpdateStatus(null);
                 try {
                   const info = await invoke<UpdateInfo | null>("cmd_check_update");
                   if (info) {
                     setUpdateAvailable(info);
                   } else {
                     setUpdateAvailable(null);
+                    setUpdateStatus("Up to date.");
+                    setTimeout(() => setUpdateStatus(null), 3000);
                   }
                 } catch (e) {
                   console.error("Update check failed:", e);
+                  setUpdateError("Could not check for updates.");
                 } finally {
                   setCheckingUpdate(false);
                 }
@@ -389,6 +412,10 @@ function App({ initialSettings }: { initialSettings?: Settings }) {
             >
               Check now
             </button>
+            </div>
+            {updateError && (
+              <p className="mt-3 text-xs text-rose-400">{updateError}</p>
+            )}
           </div>
 
           <p className="mt-4 text-xs text-neutral-500">
@@ -524,22 +551,24 @@ function GeneralTab({
         </div>
       </div>
 
-      <div>
-        <h3 className="mb-1 text-sm font-semibold text-neutral-300">Setup</h3>
-        <p className="mb-4 text-sm text-neutral-400">Re-run the initial setup wizard.</p>
-        <button
-          type="button"
-          onClick={async () => {
-            await invoke("cmd_save_settings", {
-              settings: { ...settings, has_completed_onboarding: false },
-            });
-            window.location.reload();
-          }}
-          className="w-full rounded-xl bg-neutral-800 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700"
-        >
-          Re-run onboarding
-        </button>
-      </div>
+      {import.meta.env.DEV && (
+        <div>
+          <h3 className="mb-1 text-sm font-semibold text-neutral-300">Setup</h3>
+          <p className="mb-4 text-sm text-neutral-400">Re-run the initial setup wizard.</p>
+          <button
+            type="button"
+            onClick={async () => {
+              await invoke("cmd_save_settings", {
+                settings: { ...settings, has_completed_onboarding: false },
+              });
+              window.location.reload();
+            }}
+            className="w-full rounded-xl bg-neutral-800 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700"
+          >
+            Re-run onboarding
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1503,6 +1532,15 @@ function SpinnerIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  );
+}
+
+function HistoryIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
     </svg>
   );
 }

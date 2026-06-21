@@ -78,31 +78,34 @@ export default function Widget() {
   const loading = state === "transcribing" || state === "injecting";
 
   return (
-    // Rectangular body: draggable, sharp corners blend with the transparent window.
+    <>
+      {/* Rectangular body: draggable, sharp corners blend with the transparent window. */}
     <main
       data-tauri-drag-region
-      className="flex h-screen w-[90px] select-none items-center gap-1 overflow-hidden rounded-none bg-neutral-800/95 px-0.5 border border-white/20 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_20px_-4px_rgba(255,255,255,0.15)]"
+      className="flex h-screen w-[90px] select-none items-center gap-1.5 overflow-hidden rounded-none bg-neutral-800/95 px-1.5 border border-white/20 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_20px_-4px_rgba(255,255,255,0.15)]"
     >
       {/* Left: logo button — no drag-region, clickable.
           Disabled while loading (recording has already finished). */}
-      <button
-        onClick={() => {
-          if (!loading) {
-            invoke("cmd_toggle_recording").catch(console.error);
+      <div className="relative shrink-0">
+        <button
+          onClick={() => {
+            if (!loading) {
+              invoke("cmd_toggle_recording").catch(console.error);
+            }
+          }}
+          disabled={loading}
+          title={
+            loading
+              ? "Processing…"
+              : state === "recording"
+                ? "Stop recording"
+                : "Start recording"
           }
-        }}
-        disabled={loading}
-        title={
-          loading
-            ? "Processing…"
-            : state === "recording"
-              ? "Stop recording"
-              : "Start recording"
-        }
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white shadow-sm transition active:scale-95 focus:outline-none disabled:opacity-60"
-      >
-        <img src="/logo.svg" alt="" className="h-full w-full" />
-      </button>
+          className="relative flex h-6 w-6 items-center justify-center rounded-full bg-white shadow-sm focus:outline-none disabled:opacity-60 active:scale-95"
+        >
+          <img src="/logo.svg" alt="" className="h-full w-full" />
+        </button>
+      </div>
 
       {/* Vertical divider */}
       <div className="h-4 w-px bg-white/25" />
@@ -125,6 +128,7 @@ export default function Widget() {
         </div>
       )}
     </main>
+    </>
   );
 }
 

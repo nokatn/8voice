@@ -85,13 +85,16 @@ pub fn run() {
                 }
             });
 
-            // --- Check for app updates in the background ---
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = check_for_update(&handle).await {
-                    tracing::warn!("Update check failed: {e:#}");
-                }
-            });
+            // --- Check for app updates in the background (production only) ---
+            #[cfg(not(debug_assertions))]
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = check_for_update(&handle).await {
+                        tracing::warn!("Update check failed: {e:#}");
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -893,6 +896,7 @@ async fn cmd_validate_assemblyai_key(api_key: String) -> Result<bool, String> {
 // ---------------------------------------------------------------------------
 
 /// Checks for an update and notifies the frontend if one is available.
+#[allow(dead_code)]
 async fn check_for_update(app: &AppHandle) -> tauri_plugin_updater::Result<()> {
     let updater = app.updater()?;
     if let Some(update) = updater.check().await? {
@@ -916,15 +920,25 @@ async fn check_for_update(app: &AppHandle) -> tauri_plugin_updater::Result<()> {
 
 /// Frontend command: manually check for updates.
 #[tauri::command]
-async fn cmd_check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    match updater.check().await.map_err(|e| e.to_string())? {
-        Some(update) => Ok(Some(UpdateInfo {
-            version: update.version,
-            date: update.date.map(|d| d.to_string()),
-            body: update.body,
-        })),
-        None => Ok(None),
+async fn cmd_check_update(_app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    #[cfg(debug_assertions)]
+    {
+        // In dev mode the updater endpoint doesn't have release assets for the dev
+        // target triple, so skip the check entirely to avoid ERROR logs.
+        let _ = _app;
+        return Ok(None);
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let updater = _app.updater().map_err(|e| e.to_string())?;
+        match updater.check().await.map_err(|e| e.to_string())? {
+            Some(update) => Ok(Some(UpdateInfo {
+                version: update.version,
+                date: update.date.map(|d| d.to_string()),
+                body: update.body,
+            })),
+            None => Ok(None),
+        }
     }
 }
 

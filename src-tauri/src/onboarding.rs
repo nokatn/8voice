@@ -181,13 +181,6 @@ pub async fn cmd_download_whisper_model(
     tracing::info!(target = %target.display(), "Starting file download");
     let result = download_with_progress(&model_url, &temp_target, &target, &controller, &channel).await;
 
-    if controller.is_cancelled() {
-        tracing::warn!("Download cancelled by user");
-        let _ = tokio::fs::remove_file(&temp_target).await;
-        let _ = channel.send(DownloadEvent::Cancelled);
-        return Ok(());
-    }
-
     match result {
         Ok(path) => {
             tracing::info!(path = %path.display(), "Download completed successfully");
@@ -197,6 +190,11 @@ pub async fn cmd_download_whisper_model(
             Ok(())
         }
         Err(e) => {
+            if controller.is_cancelled() {
+                tracing::warn!("Download cancelled by user; partial file kept for resume");
+                let _ = channel.send(DownloadEvent::Cancelled);
+                return Ok(());
+            }
             tracing::error!(%e, "Download failed");
             let _ = tokio::fs::remove_file(&temp_target).await;
             let _ = channel.send(DownloadEvent::Error {
@@ -215,36 +213,60 @@ async fn download_with_progress(
     channel: &Channel<DownloadEvent>,
 ) -> Result<PathBuf> {
     let client = reqwest::Client::new();
-    tracing::info!(%url, "HTTP GET request");
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .context("Model download request failed")?;
 
-    tracing::info!(status = %resp.status(), "HTTP response received");
-    if !resp.status().is_success() {
-        return Err(anyhow!(
-            "Download failed with status {} for {}",
-            resp.status(),
-            url
-        ));
+    // Check for existing partial download to resume
+    let existing_size = if temp_target.exists() {
+        std::fs::metadata(temp_target).ok().map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+
+    let mut req = client.get(url);
+    if existing_size > 0 {
+        tracing::info!(existing_size, "Resuming partial download");
+        req = req.header("Range", format!("bytes={}-", existing_size));
     }
 
-    let total = resp.content_length();
-    tracing::info!(total = ?total, "Download content length");
-    let _ = channel.send(DownloadEvent::Started { total });
+    tracing::info!(%url, existing_size, "HTTP GET request");
+    let resp = req.send().await.context("Model download request failed")?;
 
-    let mut file = tokio::fs::File::create(temp_target)
+    tracing::info!(status = %resp.status(), "HTTP response received");
+
+    let total = if existing_size > 0 {
+        // For range requests, content-length is the remaining bytes
+        let remaining = resp.content_length().unwrap_or(0);
+        let full = existing_size + remaining;
+        let _ = channel.send(DownloadEvent::Started { total: Some(full) });
+        Some(full)
+    } else {
+        if !resp.status().is_success() {
+            return Err(anyhow!(
+                "Download failed with status {} for {}",
+                resp.status(),
+                url
+            ));
+        }
+        let total = resp.content_length();
+        tracing::info!(total = ?total, "Download content length");
+        let _ = channel.send(DownloadEvent::Started { total });
+        total
+    };
+
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(temp_target)
         .await
-        .context("Could not create temporary model file")?;
+        .context("Could not open temporary model file")?;
 
     let mut stream = resp.bytes_stream();
-    let mut downloaded: u64 = 0;
+    let mut downloaded: u64 = existing_size;
     let mut last_report = std::time::Instant::now();
 
     while let Some(chunk) = stream.next().await {
         if controller.is_cancelled() {
+            // Keep partial file for resume
+            tracing::info!(downloaded, "Download cancelled, partial file kept");
             return Err(anyhow!("Download cancelled by user"));
         }
 

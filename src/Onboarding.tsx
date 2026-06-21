@@ -28,8 +28,8 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
   const [saving, setSaving] = useState(false);
 
   // --- Wizard settings (accumulated across steps) ---
-  type ProviderTab = "cloud" | "local";
-  const initialTab: ProviderTab = ["groq", "deepgram", "assembly_ai"].includes(initialSettings.api_provider) ? "cloud" : "local";
+  type ProviderTab = "cloud" | "local" | "local_model";
+  const initialTab: ProviderTab = initialSettings.api_provider === "whisper" && initialSettings.model_path !== "" && !initialSettings.model_path.startsWith("models/") ? "local_model" : ["groq", "deepgram", "assembly_ai"].includes(initialSettings.api_provider) ? "cloud" : "local";
   const [provider, setProvider] = useState<ApiProvider>(initialSettings.api_provider);
   const [providerTab, setProviderTab] = useState<ProviderTab>(initialTab);
   const [modelPath, setModelPath] = useState(initialSettings.model_path);
@@ -86,6 +86,17 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
       })
       .catch(() => {});
   }, []);
+
+  // Switch provider when toggling tabs
+  useEffect(() => {
+    if (providerTab === "local" && !["whisper", "sherpa_onnx", "vosk"].includes(provider)) {
+      setProvider("whisper");
+    } else if (providerTab === "local_model") {
+      setProvider("whisper");
+    } else if (providerTab === "cloud" && ["whisper", "sherpa_onnx", "vosk"].includes(provider)) {
+      setProvider("groq");
+    }
+  }, [providerTab]);
 
   useEffect(() => {
     invoke<string[]>("cmd_list_devices")
@@ -177,6 +188,8 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
       });
       if (selected && typeof selected === "string") {
         setLocalPath(selected);
+        setSelectedModelId("");       // deselect any download model
+        setModelPath(selected);         // use the local file
         const info = await invoke<LocalModelInfo>("cmd_validate_local_model", { path: selected });
         setLocalInfo(info);
       }
@@ -241,7 +254,10 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
   const canProceed = () => {
     switch (step) {
       case 0: { // Provider
-        if (provider === "whisper") return !!modelPath && !downloadingId;
+        if (provider === "whisper") {
+          if (providerTab === "local_model") return localPath !== "" && localInfo?.exists && localInfo?.valid_extension;
+          return !!selectedModel && downloadedFilenames.has(selectedModel.filename) && !downloadingId;
+        }
         if (provider === "groq") return groqValid === true;
         if (provider === "deepgram") return deepgramValid === true;
         if (provider === "assembly_ai") return assemblyAIValid === true;
@@ -397,6 +413,15 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
                 >
                   Local Engine
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setProviderTab("local_model")}
+                  className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
+                    providerTab === "local_model" ? "bg-emerald-600 text-white shadow" : "text-neutral-400 hover:text-neutral-200"
+                  }`}
+                >
+                  Local Model
+                </button>
               </div>
 
               {providerTab === "cloud" && (
@@ -504,94 +529,159 @@ export default function Onboarding({ initialSettings, onComplete }: OnboardingPr
               )}
 
               {providerTab === "local" && (
-                <div className="mx-auto max-w-xl space-y-3">
-                  <ProviderCard
-                    selected={provider === "whisper"}
-                    onSelect={() => setProvider("whisper")}
-                    name="Whisper (whisper.cpp)"
-                    desc="Local on-device transcription. Download a model or use an existing .bin file."
-                  >
-                    <div className="mt-3 space-y-2">
-                      {downloadedFilenames.has(selectedModel?.filename) && (
-                        <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
-                          {selectedModel?.name} ready to use.
+                <div className="flex gap-4">
+                  {/* Left panel: provider list */}
+                  <div className="w-48 shrink-0 space-y-2">
+                    <LocalButton
+                      selected={provider === "whisper"}
+                      onSelect={() => setProvider("whisper")}
+                      recommended
+                    >
+                      Whisper (whisper.cpp)
+                    </LocalButton>
+                    <LocalButton
+                      selected={provider === "sherpa_onnx"}
+                      onSelect={() => setProvider("sherpa_onnx")}
+                    >
+                      Sherpa-ONNX
+                    </LocalButton>
+                    <LocalButton
+                      selected={provider === "vosk"}
+                      onSelect={() => setProvider("vosk")}
+                    >
+                      Vosk
+                    </LocalButton>
+                  </div>
+
+                  {/* Right panel: content */}
+                  <div className="min-w-0 flex-1">
+                    {provider === "whisper" && (
+                      <div className="space-y-3 rounded-xl border border-emerald-500/50 bg-emerald-500/10 p-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">Whisper (whisper.cpp)</span>
+                          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                            Selected
+                          </span>
                         </div>
-                      )}
-                      <div className="max-h-48 space-y-2 overflow-y-auto">
-                        {models.map((m) => {
-                          const mm = MODEL_META[m.id] ?? { accuracy: 3, speed: 3, languages: "Multi-language" };
-                          const isSel = selectedModelId === m.id;
-                          const isDl = downloadedFilenames.has(m.filename);
-                          const isDling = downloadingId === m.id;
-                          const isRec = RECOMMENDED_MODELS.has(m.id);
-                          return (
-                            <div key={m.id} className={`rounded-lg border p-3 transition ${isSel ? "border-emerald-500/50 bg-emerald-500/10" : "border-neutral-800 bg-neutral-800/50"}`}>
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0 flex-1 cursor-pointer" onClick={() => { setSelectedModelId(m.id); setModelPath(`models/${m.filename}`); }}>
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-sm font-medium">{m.name}</span>
-                                    {isRec && <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400">Recommended</span>}
-                                    {isSel && <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">Selected</span>}
-                                    {isDl && !isSel && <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[9px] font-medium text-sky-400">Downloaded</span>}
+                        <p className="text-xs text-neutral-400">
+                          Download a Whisper model for local on-device transcription.
+                        </p>
+                        <div className="space-y-2">
+                          {downloadedFilenames.has(selectedModel?.filename) && (
+                            <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
+                              {selectedModel?.name} ready to use.
+                            </div>
+                          )}
+                          <div className="space-y-2">
+                            {models.map((m) => {
+                              const mm = MODEL_META[m.id] ?? { accuracy: 3, speed: 3, languages: "Multi-language" };
+                              const isLocalMode = localPath !== "";
+                              const isSel = selectedModelId === m.id;
+                              const isDl = downloadedFilenames.has(m.filename);
+                              const isDling = downloadingId === m.id;
+                              const isRec = RECOMMENDED_MODELS.has(m.id);
+                              return (
+                                <div key={m.id} className={`rounded-lg border p-3 transition ${isSel && !isLocalMode ? "border-emerald-500/50 bg-emerald-500/10" : "border-neutral-800 bg-neutral-800/50"}`}>
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => { setSelectedModelId(m.id); setModelPath(`models/${m.filename}`); setLocalPath(""); setLocalInfo(null); }}>
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="text-sm font-medium">{m.name}</span>
+                                        {isRec && <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400">Recommended</span>}
+                                        {isSel && !isLocalMode && <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">Selected</span>}
+                                        {isDl && !isSel && <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[9px] font-medium text-sky-400">Downloaded</span>}
+                                      </div>
+                                      <div className="mt-1 flex items-center gap-2">
+                                        <span className="rounded-full bg-neutral-700/50 px-1.5 py-0.5 text-[9px] text-neutral-300">{mm.languages}</span>
+                                        <span className="text-[10px] text-neutral-400">{m.size_human}</span>
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0">
+                                      {isDl ? (
+                                        <button type="button" onClick={() => deleteModel(m)} title="Delete" className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-rose-500/10 hover:text-rose-400">
+                                          <TrashIcon className="h-3.5 w-3.5" />
+                                        </button>
+                                      ) : (
+                                        <button type="button" onClick={() => startDownload(m)} disabled={isDling || downloadingId !== null} title={isDling ? "Downloading…" : "Download"} className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-40">
+                                          {isDling ? <SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> : <DownloadIcon className="h-3.5 w-3.5" />}
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className="mt-1 flex items-center gap-2">
-                                    <span className="rounded-full bg-neutral-700/50 px-1.5 py-0.5 text-[9px] text-neutral-300">{mm.languages}</span>
-                                    <span className="text-[10px] text-neutral-400">{m.size_human}</span>
-                                  </div>
-                                </div>
-                                <div className="shrink-0">
-                                  {isDl ? (
-                                    <button type="button" onClick={() => deleteModel(m)} title="Delete" className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-rose-500/10 hover:text-rose-400">
-                                      <TrashIcon className="h-3.5 w-3.5" />
-                                    </button>
-                                  ) : (
-                                    <button type="button" onClick={() => startDownload(m)} disabled={isDling || downloadingId !== null} title={isDling ? "Downloading…" : "Download"} className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-40">
-                                      {isDling ? <SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> : <DownloadIcon className="h-3.5 w-3.5" />}
-                                    </button>
+                                  {isDling && (
+                                    <div className="mt-2">
+                                      <div className="mb-1 flex items-center justify-between text-[10px]">
+                                        <span className="text-neutral-300">Downloading…</span>
+                                        <span className="text-neutral-400">{formatBytes(progress.downloaded)}{progress.total ? ` / ${formatBytes(progress.total)}` : ""}</span>
+                                      </div>
+                                      <div className="h-1 w-full overflow-hidden rounded-full bg-neutral-700">
+                                        <div className="h-full bg-emerald-500 transition-all" style={{ width: `${progress.percent ?? 0}%` }} />
+                                      </div>
+                                      <button type="button" onClick={cancelDownload} className="mt-1 text-[10px] text-neutral-400 hover:text-rose-400">Cancel</button>
+                                    </div>
                                   )}
                                 </div>
-                              </div>
-                              {isDling && (
-                                <div className="mt-2">
-                                  <div className="mb-1 flex items-center justify-between text-[10px]">
-                                    <span className="text-neutral-300">Downloading…</span>
-                                    <span className="text-neutral-400">{formatBytes(progress.downloaded)}{progress.total ? ` / ${formatBytes(progress.total)}` : ""}</span>
-                                  </div>
-                                  <div className="h-1 w-full overflow-hidden rounded-full bg-neutral-700">
-                                    <div className="h-full bg-emerald-500 transition-all" style={{ width: `${progress.percent ?? 0}%` }} />
-                                  </div>
-                                  <button type="button" onClick={cancelDownload} className="mt-1 text-[10px] text-neutral-400 hover:text-rose-400">Cancel</button>
-                                </div>
-                              )}
+                              );
+                            })}
                             </div>
-                          );
-                        })}
+                          </div>
                       </div>
-                      <button type="button" onClick={chooseLocalFile} className="w-full rounded-lg bg-neutral-800 py-2 text-xs font-medium text-neutral-200 transition hover:bg-neutral-700">
-                        Use existing .bin / .gguf file
+                    )}
+
+                    {provider === "sherpa_onnx" && (
+                      <div className="rounded-xl border border-neutral-800 bg-neutral-800/50 p-4">
+                        <p className="text-sm font-medium">Sherpa-ONNX</p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Local engine (stub). Requires separate ONNX runtime setup.
+                        </p>
+                      </div>
+                    )}
+
+                    {provider === "vosk" && (
+                      <div className="rounded-xl border border-neutral-800 bg-neutral-800/50 p-4">
+                        <p className="text-sm font-medium">Vosk</p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Local engine (stub). Requires separate Vosk API installation.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {providerTab === "local_model" && (
+                <div className="mx-auto max-w-xl">
+                  <div className="rounded-xl border border-emerald-500/50 bg-emerald-500/10 p-4">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">Local Model</span>
+                      <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                        Whisper
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-neutral-400">
+                      Use an existing .bin or .gguf model file from your computer.
+                    </p>
+                    <div className="mt-4 space-y-3">
+                      <button type="button" onClick={chooseLocalFile} className="w-full rounded-lg bg-neutral-800 py-2 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700">
+                        Select .bin / .gguf file
                       </button>
                       {localPath && localInfo && (
-                        <div className="rounded-lg bg-neutral-800/50 p-2 text-[10px]">
-                          <p className="break-all font-mono text-neutral-300">{localPath}</p>
-                          {localInfo.exists && localInfo.valid_extension && <p className="text-emerald-400">{formatBytes(localInfo.size_bytes)}</p>}
-                          {(!localInfo.exists || !localInfo.valid_extension) && <p className="text-rose-400">File not found or invalid extension.</p>}
+                        <div className="rounded-lg border border-emerald-500/50 bg-emerald-500/10 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-medium text-emerald-400">Using local file</span>
+                            <button type="button" onClick={() => { setLocalPath(""); setLocalInfo(null); setModelPath(""); setSelectedModelId("small"); }} className="text-[10px] text-neutral-400 hover:text-rose-400">Clear</button>
+                          </div>
+                          <p className="mt-1 break-all font-mono text-[10px] text-neutral-200">{localPath}</p>
+                          {localInfo.exists && localInfo.valid_extension && <p className="mt-0.5 text-[10px] text-emerald-400">{formatBytes(localInfo.size_bytes)}</p>}
+                          {(!localInfo.exists || !localInfo.valid_extension) && <p className="mt-0.5 text-[10px] text-rose-400">File not found or invalid extension.</p>}
                         </div>
                       )}
+                      {!localPath && (
+                        <p className="text-center text-[10px] text-neutral-500">
+                          Select a previously downloaded Whisper model file to use it for transcription.
+                        </p>
+                      )}
                     </div>
-                  </ProviderCard>
-
-                  <ProviderCard
-                    selected={provider === "sherpa_onnx"}
-                    onSelect={() => setProvider("sherpa_onnx")}
-                    name="Sherpa-ONNX"
-                    desc="Local engine (stub). Requires separate ONNX runtime setup."
-                  />
-                  <ProviderCard
-                    selected={provider === "vosk"}
-                    onSelect={() => setProvider("vosk")}
-                    name="Vosk"
-                    desc="Local engine (stub). Requires separate Vosk API installation."
-                  />
+                  </div>
                 </div>
               )}
             </div>
@@ -825,6 +915,35 @@ function StepButton({
         {completed ? <CheckIcon className="h-3 w-3" /> : icon}
       </span>
       {children}
+    </button>
+  );
+}
+
+function LocalButton({
+  selected,
+  onSelect,
+  recommended,
+  children,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  recommended?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+        selected
+          ? "border-emerald-500/50 bg-emerald-500/10"
+          : "border-neutral-800 bg-neutral-800/50 hover:bg-neutral-800"
+      }`}
+    >
+      <span className="font-medium">{children}</span>
+      {recommended && !selected && (
+        <span className="ml-1 text-[9px] text-amber-400">★</span>
+      )}
     </button>
   );
 }
