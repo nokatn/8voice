@@ -42,11 +42,17 @@ pub struct UpdateInfo {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Log to both stderr (dev) and a file (production)
+    let log_dir = get_log_dir();
+    let _ = std::fs::create_dir_all(&log_dir);
+    let file_appender = tracing_appender::rolling::never(log_dir, "8voice.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,eightvoice=debug")),
         )
+        .with_writer(non_blocking)
         .init();
 
     // --- Audio (create before app so it can be managed early) ---
@@ -767,6 +773,31 @@ fn cmd_play_stop_beep() {
 }
 
 /// Generate a WAV buffer with a frequency sweep and play it via system sound.
+/// Returns the platform-specific log directory.
+fn get_log_dir() -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let base = std::env::var("APPDATA")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("8voice"));
+        base.join("8voice").join("logs")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("8voice"));
+        home.join("Library").join("Logs").join("8voice")
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let home = std::env::var("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("8voice"));
+        home.join(".local").join("share").join("8voice").join("logs")
+    }
+}
+
 fn play_beep_wav(ascending: bool) {
     let sample_rate = 22050u32;
     let duration = 0.22;
